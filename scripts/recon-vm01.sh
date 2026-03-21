@@ -15,8 +15,9 @@ df -h /
 
 echo ""
 echo "===== APACHE ====="
-if command -v apache2 &>/dev/null; then
-    apache2 -v
+APACHE2_BIN=$(command -v apache2 || command -v /usr/sbin/apache2 || echo "")
+if [[ -n "$APACHE2_BIN" ]] || systemctl is-active --quiet apache2 2>/dev/null; then
+    ${APACHE2_BIN:-/usr/sbin/apache2} -v 2>/dev/null || echo "(version check failed — but service is running)"
     echo "--- Enabled modules ---"
     sudo apache2ctl -M 2>/dev/null | sort
     echo "--- Enabled sites ---"
@@ -24,7 +25,7 @@ if command -v apache2 &>/dev/null; then
     echo "--- Listening ports ---"
     ss -tlnp | grep apache2 || echo "(none found)"
 else
-    echo "Apache NOT installed"
+    echo "Apache NOT installed and service not running"
 fi
 
 echo ""
