@@ -42,9 +42,26 @@ npx tailwindcss -i ./static/css/input.css -o ./static/css/app.css --watch
 
 ## Deployment
 
-See `scripts/` for all VM setup scripts. The general flow is:
+### Directory layout on servers
+- `/usr/local/src/french75` — git clone on each VM (source code, setup scripts)
+- `/opt/french75/` — runtime directory on vm01: binary, `.env`, `photos/`
 
-1. Push code to `main` branch on GitHub
-2. GitHub Actions builds the binary and deploys to vm01 via SSH
+### First-time VM setup
+```bash
+# On each VM — clone source to /usr/local/src
+sudo git clone https://github.com/patrikhson/french75.git /usr/local/src/french75
 
-For first-time VM setup, see `scripts/setup-vm04.sh` and `scripts/setup-vm01.sh`.
+# On vm04
+bash /usr/local/src/french75/scripts/setup-vm04.sh <vm01-ip> <db-password>
+
+# On vm01
+bash /usr/local/src/french75/scripts/setup-vm01.sh french75.paftech.se 8090
+```
+
+### Ongoing deployments
+Push to `master` — GitHub Actions builds the binary and deploys to vm01 via SSH automatically.
+
+### Update setup scripts on a VM
+```bash
+cd /usr/local/src/french75 && sudo git pull
+```

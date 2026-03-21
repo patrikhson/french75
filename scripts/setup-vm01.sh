@@ -6,9 +6,9 @@
 # Usage: bash scripts/setup-vm01.sh <domain> <app-port>
 # Example: bash scripts/setup-vm01.sh french75.paftech.se 8090
 #
-# Run this ON vm01 after pulling the latest repo:
-#   cd ~/french75 && git pull
-#   bash scripts/setup-vm01.sh french75.paftech.se 8090
+# Run this ON vm01 after cloning the repo:
+#   sudo git clone https://github.com/patrikhson/french75.git /usr/local/src/french75
+#   bash /usr/local/src/french75/scripts/setup-vm01.sh french75.paftech.se 8090
 
 set -euo pipefail
 

@@ -7,8 +7,8 @@
 # Example: bash scripts/setup-vm04.sh 1.2.3.4 mysecretpassword
 #
 # Run this ON vm04 after cloning the repo:
-#   git clone https://github.com/patrikhson/french75.git
-#   bash french75/scripts/setup-vm04.sh <vm01-ip> <db-password>
+#   sudo git clone https://github.com/patrikhson/french75.git /usr/local/src/french75
+#   bash /usr/local/src/french75/scripts/setup-vm04.sh <vm01-ip> <db-password>
 
 set -euo pipefail
 
@@ -76,9 +76,9 @@ echo ""
 echo "----- Configuring pg_hba.conf -----"
 HBA_RULE="host    french75        french75        ${VM01_IP}/32            scram-sha-256"
 
-# Add rule only if not already present
-if sudo grep -qF "${VM01_IP}/32" "$PG_HBA"; then
-    echo "Rule for ${VM01_IP} already exists in pg_hba.conf — skipping."
+# Add rule only if the specific french75 rule is not already present
+if sudo grep -qF "french75        ${VM01_IP}/32" "$PG_HBA"; then
+    echo "Rule for french75 from ${VM01_IP} already exists — skipping."
 else
     echo "$HBA_RULE" | sudo tee -a "$PG_HBA"
     echo "Rule added."
