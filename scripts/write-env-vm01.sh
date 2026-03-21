@@ -35,10 +35,10 @@ SMTP_FROM=$(env_get SMTP_FROM)
 
 VM01="vm01.paftech.se"
 REMOTE_ENV="/opt/french75/.env"
+TMPFILE=$(mktemp)
 
-echo "Writing production .env to $VM01:$REMOTE_ENV ..."
-
-ssh "$VM01" "sudo tee $REMOTE_ENV > /dev/null" <<EOF
+# Write env content to a local temp file
+cat > "$TMPFILE" <<EOF
 APP_ENV=production
 PORT=8090
 DATABASE_URL=$DATABASE_URL
@@ -60,8 +60,11 @@ SMTP_PASS=$SMTP_PASS
 SMTP_FROM=$SMTP_FROM
 EOF
 
-ssh "$VM01" "sudo chmod 600 $REMOTE_ENV && sudo chown french75:french75 $REMOTE_ENV"
+# SCP to /tmp on vm01 (no sudo needed)
+echo "Copying .env to $VM01:/tmp/french75_env_new ..."
+scp "$TMPFILE" "$VM01:/tmp/french75_env_new"
+rm "$TMPFILE"
 
-echo "Verifying (first 3 lines):"
-ssh "$VM01" "sudo head -3 $REMOTE_ENV"
-echo "Done."
+# Move into place with sudo (will prompt for password once)
+echo "Moving into place on vm01 (sudo required) ..."
+ssh -t "$VM01" "sudo mv /tmp/french75_env_new $REMOTE_ENV && sudo chmod 600 $REMOTE_ENV && sudo chown french75:french75 $REMOTE_ENV && echo '--- First 3 lines ---' && sudo head -3 $REMOTE_ENV"
