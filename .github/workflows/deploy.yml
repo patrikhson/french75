@@ -1,0 +1,51 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Install Node and build Tailwind CSS
+        run: |
+          npm install
+          npx tailwindcss -i ./static/css/input.css -o ./static/css/app.css --minify
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Build binary (Linux amd64)
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+          go build -ldflags="-s -w" -o french75-linux ./cmd/server
+
+      - name: Deploy to vm01
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H vm01.paftech.se >> ~/.ssh/known_hosts
+
+          scp -i ~/.ssh/id_ed25519 french75-linux deploy@vm01.paftech.se:/tmp/french75_new
+
+          ssh -i ~/.ssh/id_ed25519 deploy@vm01.paftech.se '
+            sudo mv /tmp/french75_new /opt/french75/french75
+            sudo chmod +x /opt/french75/french75
+            sudo systemctl restart french75
+            sleep 3
+            systemctl is-active french75
+          '

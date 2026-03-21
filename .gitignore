@@ -1,0 +1,31 @@
+# Binary
+french75
+french75-linux
+
+# Environment
+.env
+.env.local
+
+# Go
+vendor/
+
+# Node (Tailwind build)
+node_modules/
+
+# Tailwind output (generated, not committed)
+static/css/app.css
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# macOS
+.DS_Store
+
+# Photos (uploaded content, not code)
+photos/
+
+# Test output
+*.test
+coverage.out
