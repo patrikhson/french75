@@ -138,7 +138,7 @@ sudo tee "$VHOST_FILE" > /dev/null <<EOF
     ProxyPreserveHost On
     ProxyPass        / http://127.0.0.1:${APP_PORT}/
     ProxyPassReverse / http://127.0.0.1:${APP_PORT}/
-    RequestHeader set X-Forwarded-Proto "http"
+    RequestHeader set X-Forwarded-Proto "https"
     ErrorLog  /var/log/apache2/french75_error.log
     CustomLog /var/log/apache2/french75_access.log combined
 </VirtualHost>
