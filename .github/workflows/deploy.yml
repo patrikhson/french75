@@ -11,14 +11,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.26'
           cache: true
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-      - name: Install Node and build Tailwind CSS
+      - name: Build Tailwind CSS
         run: |
           npm install
           npx tailwindcss -i ./static/css/input.css -o ./static/css/app.css --minify
@@ -38,14 +42,15 @@ jobs:
           mkdir -p ~/.ssh
           echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H vm01.paftech.se >> ~/.ssh/known_hosts
+          ssh-keyscan -H vm01.paftech.se >> ~/.ssh/known_hosts 2>/dev/null
 
-          scp -i ~/.ssh/id_ed25519 french75-linux deploy@vm01.paftech.se:/tmp/french75_new
+          scp -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no \
+            french75-linux deploy@vm01.paftech.se:/tmp/french75_new
 
-          ssh -i ~/.ssh/id_ed25519 deploy@vm01.paftech.se '
-            sudo mv /tmp/french75_new /opt/french75/french75
-            sudo chmod +x /opt/french75/french75
-            sudo systemctl restart french75
-            sleep 3
-            systemctl is-active french75
-          '
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no \
+            deploy@vm01.paftech.se \
+            'sudo mv /tmp/french75_new /opt/french75/french75 \
+            && sudo chmod +x /opt/french75/french75 \
+            && sudo systemctl restart french75 \
+            && sleep 3 \
+            && systemctl is-active french75'
