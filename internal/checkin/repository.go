@@ -66,9 +66,8 @@ func Create(ctx context.Context, db *pgxpool.Pool, p CreateParams) (string, erro
 		return "", fmt.Errorf("invalid drink date")
 	}
 	today := time.Now().UTC().Truncate(24 * time.Hour)
-	yesterday := today.Add(-24 * time.Hour)
-	if drinkDate.Before(yesterday) || drinkDate.After(today) {
-		return "", fmt.Errorf("drink date must be today or yesterday")
+	if drinkDate.After(today) {
+		return "", fmt.Errorf("drink date cannot be in the future")
 	}
 
 	if p.Score < 0 || p.Score > 100 {
@@ -135,10 +134,11 @@ func Create(ctx context.Context, db *pgxpool.Pool, p CreateParams) (string, erro
 		gpsPassed = &passed
 	}
 
-	// Active/admin users go public unless a check with data present actually failed.
+	// Active/admin users go public unless a check failed or the drink date is older than 2 days.
 	checkFailed := (exifPassed != nil && !*exifPassed) || (gpsPassed != nil && !*gpsPassed)
+	daysOld := int(today.Sub(drinkDate).Hours() / 24)
 	status := "pending"
-	if (p.UserRole == "active" || p.UserRole == "admin") && !checkFailed {
+	if (p.UserRole == "active" || p.UserRole == "admin") && !checkFailed && daysOld <= 1 {
 		status = "public"
 	}
 

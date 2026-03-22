@@ -129,7 +129,7 @@ func (h *Handler) listPendingCheckins(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, adminPage("Pending Check-ins", `<p><a href="/admin">← Admin</a></p><table border="1" cellpadding="6"><tr><th>User</th><th>Role</th><th>Drink</th><th>Score</th><th>Location</th><th>EXIF</th><th>GPS</th><th>Review</th><th></th></tr>`))
+	fmt.Fprint(w, adminPage("Pending Check-ins", `<p><a href="/admin">← Admin</a></p><table border="1" cellpadding="6"><tr><th>User</th><th>Role</th><th>Drink</th><th>Date</th><th>Location</th><th>EXIF date</th><th>Device GPS</th><th>Photo GPS</th><th>Review</th><th></th></tr>`))
 	for _, ci := range items {
 		exif := "—"
 		if ci.ExifPassed != nil {
@@ -151,9 +151,17 @@ func (h *Handler) listPendingCheckins(w http.ResponseWriter, r *http.Request) {
 				gps = "✗" + dist
 			}
 		}
+		photoGPS := "—"
+		if ci.PhotoGPSPassed != nil {
+			if *ci.PhotoGPSPassed {
+				photoGPS = fmt.Sprintf("✓ (%dm)", *ci.PhotoGPSDistanceM)
+			} else {
+				photoGPS = fmt.Sprintf("✗ (%dm)", *ci.PhotoGPSDistanceM)
+			}
+		}
 		fmt.Fprintf(w, `<tr>
-  <td>%s</td><td>%s</td><td>%s</td><td>%d</td>
-  <td>%s</td><td>%s</td><td>%s</td>
+  <td>%s</td><td>%s</td><td>%s</td><td>%s</td>
+  <td>%s</td><td>%s</td><td>%s</td><td>%s</td>
   <td>%s</td>
   <td>
     <form method="POST" action="/admin/checkins/%s/approve" style="display:inline">
@@ -165,8 +173,8 @@ func (h *Handler) listPendingCheckins(w http.ResponseWriter, r *http.Request) {
     <a href="/checkins/%s">View</a>
   </td>
 </tr>`,
-			ci.UserName, ci.UserRole, ci.DrinkName, ci.Score,
-			ci.LocationName, exif, gps,
+			ci.UserName, ci.UserRole, ci.DrinkName, ci.DrinkDate.Format("2 Jan 2006"),
+			ci.LocationName, exif, gps, photoGPS,
 			ci.Review,
 			ci.ID, ci.ID, ci.ID,
 		)
