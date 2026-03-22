@@ -119,7 +119,7 @@ func main() {
 	photoHandler := photo.NewHandler(pool, storage)
 	photoHandler.RegisterRoutes(mux, auth.RequireAuth(pool))
 
-	location.NewHandler().RegisterRoutes(mux, auth.RequireAuth(pool))
+	location.NewHandler(cfg.GooglePlacesKey).RegisterRoutes(mux, auth.RequireAuth(pool))
 
 	checkinHandler := checkin.NewHandler(pool, cfg.StorageURLPrefix)
 	checkinHandler.RegisterRoutes(mux, auth.RequireAuth(pool))

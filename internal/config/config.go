@@ -32,6 +32,8 @@ type Config struct {
 	SMTPUser string
 	SMTPPass string
 	SMTPFrom string
+
+	GooglePlacesKey string
 }
 
 func Load() (*Config, error) {
@@ -55,6 +57,7 @@ func Load() (*Config, error) {
 		SMTPUser:              getEnv("SMTP_USER", ""),
 		SMTPPass:              getEnv("SMTP_PASS", ""),
 		SMTPFrom:              getEnv("SMTP_FROM", ""),
+		GooglePlacesKey:       getEnv("GOOGLE_PLACES_KEY", ""),
 	}
 
 	c.IsProd = c.AppEnv == "production"
