@@ -30,6 +30,36 @@ func main() {
 	// Load .env in development (ignored if file doesn't exist in production)
 	_ = godotenv.Load()
 
+	// Bootstrap: approve a registration request and send the welcome email.
+	// Usage: french75 -bootstrap-approve paf@paftech.se
+	// Only works when no admin users exist yet.
+	if len(os.Args) == 3 && os.Args[1] == "-bootstrap-approve" {
+		email := os.Args[2]
+		cfg, err := config.Load()
+		if err != nil {
+			log.Fatalf("config: %v", err)
+		}
+		ctx := context.Background()
+		pool, err := db.Connect(ctx, cfg.DatabaseURL)
+		if err != nil {
+			log.Fatalf("db: %v", err)
+		}
+		mailer := mail.New(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPFrom)
+		var reqID string
+		err = pool.QueryRow(ctx,
+			`SELECT id FROM registration_requests WHERE email=$1 AND status='pending' AND email_verified=true`,
+			email,
+		).Scan(&reqID)
+		if err != nil {
+			log.Fatalf("no verified pending request for %s: %v", email, err)
+		}
+		if err := auth.SendApprovalEmail(ctx, pool, mailer, cfg.AppBaseURL, reqID); err != nil {
+			log.Fatalf("send approval email: %v", err)
+		}
+		log.Printf("approved %s and sent welcome email", email)
+		return
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("config: %v", err)
