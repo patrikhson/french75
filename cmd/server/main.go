@@ -16,10 +16,12 @@ import (
 	"github.com/patrikhson/french75/internal/config"
 	"github.com/patrikhson/french75/internal/db"
 	"github.com/patrikhson/french75/internal/drink"
+	"github.com/patrikhson/french75/internal/feed"
 	"github.com/patrikhson/french75/internal/location"
 	"github.com/patrikhson/french75/internal/mail"
 	"github.com/patrikhson/french75/internal/middleware"
 	"github.com/patrikhson/french75/internal/photo"
+	"github.com/patrikhson/french75/internal/social"
 )
 
 func main() {
@@ -88,6 +90,9 @@ func main() {
 
 	checkinHandler := checkin.NewHandler(pool, cfg.StorageURLPrefix)
 	checkinHandler.RegisterRoutes(mux, auth.RequireAuth(pool))
+
+	feed.NewHandler(pool, cfg.StorageURLPrefix).RegisterRoutes(mux, auth.RequireAuth(pool))
+	social.NewHandler(pool).RegisterRoutes(mux, auth.RequireAuth(pool))
 
 	// Serve uploaded photos as static files
 	mux.Handle("GET /photos/", http.StripPrefix("/photos/",
