@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/patrikhson/french75/internal/layout"
 	"github.com/patrikhson/french75/internal/middleware"
 )
-
 
 
 type Handler struct {
@@ -50,27 +50,13 @@ func (h *Handler) index(w http.ResponseWriter, r *http.Request) {
 
 	if !isHTMX {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, `<!DOCTYPE html>
+		fmt.Fprintf(w, `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>French 75 Tracker</title>
 <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
 </head>
-<body>
-<header>
-  <h1>French 75 Tracker</h1>
-  <nav>
-    <a href="/checkins/new">+ Check-in</a> |
-    <a href="/feed/following">Following</a> |
-    <a href="/drinks">Drinks</a> |`)
-	if middleware.GetUserRole(r) == "admin" {
-		fmt.Fprint(w, ` <a href="/admin">Admin</a> |`)
-	}
-	fmt.Fprint(w, `
-    <a href="/auth/logout" hx-post="/auth/logout" hx-push-url="true">Log out</a>
-  </nav>
-</header>
-<main id="feed">`)
+<body>%s<main id="feed">`, layout.Nav(middleware.GetUserRole(r)))
 	}
 
 	for _, it := range items {

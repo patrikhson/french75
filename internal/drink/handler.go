@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/patrikhson/french75/internal/layout"
 	"github.com/patrikhson/french75/internal/middleware"
 )
 
@@ -31,12 +32,15 @@ func (h *Handler) listDrinks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	role := middleware.GetUserRole(r)
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, `<!DOCTYPE html><html><head><meta charset="UTF-8">
+	fmt.Fprintf(w, `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Drinks — French 75 Tracker</title></head><body>
+<title>Drinks — French 75 Tracker</title>
+<script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+</head><body>%s<main>
 <h2>Drinks</h2>
-<ul>`)
+<ul>`, layout.Nav(role))
 	for _, d := range drinks {
 		fmt.Fprintf(w, `<li><strong>%s</strong>`, d.Name)
 		if d.Description != "" {
@@ -53,7 +57,7 @@ func (h *Handler) listDrinks(w http.ResponseWriter, r *http.Request) {
   <label>Why should we add it?<br><textarea name="reason"></textarea></label><br><br>
   <button type="submit">Submit request</button>
 </form>
-</body></html>`)
+</main></body></html>`)
 }
 
 func (h *Handler) submitRequest(w http.ResponseWriter, r *http.Request) {

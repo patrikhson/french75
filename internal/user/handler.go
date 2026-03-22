@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/patrikhson/french75/internal/layout"
 	"github.com/patrikhson/french75/internal/middleware"
 	"github.com/patrikhson/french75/internal/social"
 )
@@ -96,11 +97,10 @@ func (h *Handler) profile(w http.ResponseWriter, r *http.Request) {
 <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 </head>
-<body>
-<p><a href="/">← Feed</a></p>
+<body>%s<main>
 <h2>%s</h2>
 <p>@%s · %d check-ins · %d followers · %d following</p>`,
-		p.DisplayName, p.DisplayName, p.Username,
+		layout.Nav(middleware.GetUserRole(r)), p.DisplayName, p.Username,
 		p.CheckinCount, followers, following,
 	)
 
@@ -172,5 +172,5 @@ func (h *Handler) profile(w http.ResponseWriter, r *http.Request) {
 </script>`)
 	}
 
-	fmt.Fprint(w, `</body></html>`)
+	fmt.Fprint(w, `</main></body></html>`)
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/patrikhson/french75/internal/layout"
 	"github.com/patrikhson/french75/internal/middleware"
 )
 
@@ -24,6 +25,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux, requireAuth func(http.Handl
 	mux.Handle("GET /checkins/new", requireAuth(http.HandlerFunc(h.showNew)))
 	mux.Handle("POST /checkins", requireAuth(http.HandlerFunc(h.create)))
 	mux.Handle("GET /checkins/{id}", requireAuth(http.HandlerFunc(h.show)))
+	mux.Handle("GET /checkins/{id}/edit", requireAuth(http.HandlerFunc(h.showEdit)))
+	mux.Handle("POST /checkins/{id}/edit", requireAuth(http.HandlerFunc(h.edit)))
 }
 
 func (h *Handler) showNew(w http.ResponseWriter, r *http.Request) {
@@ -44,6 +47,7 @@ func (h *Handler) showNew(w http.ResponseWriter, r *http.Request) {
 		drinks = append(drinks, d)
 	}
 
+	role := middleware.GetUserRole(r)
 	today := time.Now().UTC().Format("2006-01-02")
 
 	w.Header().Set("Content-Type", "text/html")
@@ -51,9 +55,12 @@ func (h *Handler) showNew(w http.ResponseWriter, r *http.Request) {
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>New Check-in — French 75 Tracker</title>
+<script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 </head>
-<body>
+<body>`)
+	fmt.Fprint(w, layout.Nav(role))
+	fmt.Fprint(w, `<main>
 <h2>New Check-in</h2>
 <form id="checkinForm" method="POST" action="/checkins">
 
@@ -190,7 +197,7 @@ async function uploadPhoto(file) {
 }
 </script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-</body></html>`, today, today)
+</main></body></html>`, today, today)
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
@@ -273,9 +280,10 @@ func (h *Handler) show(w http.ResponseWriter, r *http.Request) {
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>%s Check-in — French 75 Tracker</title>
+<script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 </head>
-<body>
+<body>%s<main>
 <h2>%s</h2>
 <p><strong>Score:</strong> %d/100</p>
 <p><strong>Date:</strong> %s</p>
@@ -283,7 +291,7 @@ func (h *Handler) show(w http.ResponseWriter, r *http.Request) {
 <p><strong>Status:</strong> %s</p>
 <blockquote>%s</blockquote>
 `,
-		ci.DrinkName, ci.DrinkName,
+		ci.DrinkName, layout.Nav(userRole), ci.DrinkName,
 		ci.Score,
 		ci.DrinkDate.Format("2 January 2006"),
 		ci.LocationName,
@@ -298,8 +306,8 @@ func (h *Handler) show(w http.ResponseWriter, r *http.Request) {
 
 	canEdit := ci.UserID == userID && time.Now().Before(ci.EditDeadline)
 	if canEdit {
-		fmt.Fprintf(w, `<p><small>You can edit this check-in until %s.</small></p>`,
-			ci.EditDeadline.Format("15:04 on 2 Jan"))
+		fmt.Fprintf(w, `<p><small>You can edit this check-in until %s. <a href="/checkins/%s/edit">Edit</a></small></p>`,
+			ci.EditDeadline.Format("15:04 on 2 Jan"), ci.ID)
 	}
 
 	fmt.Fprintf(w,
@@ -318,5 +326,74 @@ func (h *Handler) show(w http.ResponseWriter, r *http.Request) {
 		ci.LocationLat, ci.LocationLng,
 		ci.LocationName,
 	)
-	fmt.Fprint(w, `<p><a href="/checkins/new">New check-in</a></p></body></html>`)
+	fmt.Fprint(w, `</main></body></html>`)
+}
+
+func (h *Handler) showEdit(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	userID := middleware.GetUserID(r)
+	userRole := middleware.GetUserRole(r)
+
+	ci, _, err := GetByID(r.Context(), h.db, id)
+	if err != nil || ci.UserID != userID || !time.Now().Before(ci.EditDeadline) {
+		http.Error(w, "Not found or edit window closed", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Edit Check-in — French 75 Tracker</title>
+<script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+</head>
+<body>%s<main>
+<h2>Edit Check-in</h2>
+<form method="POST" action="/checkins/%s/edit">
+  <label>Score (0–100)<br>
+  <input type="range" name="score" min="0" max="100" value="%d" oninput="this.nextElementSibling.value=this.value">
+  <output>%d</output></label><br><br>
+
+  <label>Review<br>
+  <textarea name="review" rows="4" required>%s</textarea></label><br><br>
+
+  <button type="submit">Save changes</button>
+  <a href="/checkins/%s">Cancel</a>
+</form>
+</main></body></html>`,
+		layout.Nav(userRole),
+		ci.ID, ci.Score, ci.Score, ci.Review, ci.ID)
+}
+
+func (h *Handler) edit(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	userID := middleware.GetUserID(r)
+
+	ci, _, err := GetByID(r.Context(), h.db, id)
+	if err != nil || ci.UserID != userID || !time.Now().Before(ci.EditDeadline) {
+		http.Error(w, "Not found or edit window closed", http.StatusNotFound)
+		return
+	}
+
+	score, err := strconv.Atoi(r.FormValue("score"))
+	if err != nil || score < 0 || score > 100 {
+		http.Error(w, "Invalid score", http.StatusBadRequest)
+		return
+	}
+	review := strings.TrimSpace(r.FormValue("review"))
+	if review == "" {
+		http.Error(w, "Review is required", http.StatusBadRequest)
+		return
+	}
+
+	_, err = h.db.Exec(r.Context(),
+		`UPDATE check_ins SET score=$1, review=$2 WHERE id=$3 AND user_id=$4`,
+		score, review, id, userID,
+	)
+	if err != nil {
+		http.Error(w, "Server error", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, "/checkins/"+id, http.StatusSeeOther)
 }
