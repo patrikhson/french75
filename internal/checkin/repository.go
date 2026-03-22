@@ -106,38 +106,10 @@ func Create(ctx context.Context, db *pgxpool.Pool, p CreateParams) (string, erro
 		}
 	}
 
-	status := "pending"
-	if p.UserRole == "active" || p.UserRole == "admin" {
-		status = "public"
-	}
+	// Run anti-lying checks first so they can influence the final status.
 
-	id := uuid.NewString()
-	_, err = tx.Exec(ctx,
-		`INSERT INTO check_ins (id, user_id, drink_id, score, review, drink_date, status,
-		                        location_name, location_lat, location_lng,
-		                        location_osm_id, location_osm_type,
-		                        submission_lat, submission_lng, submission_accuracy,
-		                        edit_deadline)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7::checkin_status,$8,$9,$10,$11,$12,$13,$14,$15,
-		         NOW()+INTERVAL '24 hours')`,
-		id, p.UserID, p.DrinkID, p.Score, p.Review, drinkDate, status,
-		p.LocationName, p.LocationLat, p.LocationLng,
-		p.LocationOsmID, p.LocationOsmType,
-		p.SubmissionLat, p.SubmissionLng, p.SubmissionAccuracy,
-	)
-	if err != nil {
-		return "", err
-	}
-
-	// Link photos to this check-in
-	for i, photoID := range p.PhotoIDs {
-		tx.Exec(ctx,
-			`UPDATE photos SET checkin_id=$1, sort_order=$2 WHERE id=$3`,
-			id, i, photoID,
-		)
-	}
-
-	// EXIF check: compare first photo's EXIF timestamp to drink_date
+	// EXIF check: compare first photo's EXIF timestamp to drink_date.
+	// nil exifPassed means no EXIF data — not penalised.
 	var exifTS *time.Time
 	tx.QueryRow(ctx, `SELECT exif_timestamp FROM photos WHERE id=$1`, p.PhotoIDs[0]).Scan(&exifTS)
 
@@ -151,7 +123,8 @@ func Create(ctx context.Context, db *pgxpool.Pool, p CreateParams) (string, erro
 		exifPassed = &passed
 	}
 
-	// GPS check: distance between submission coords and location
+	// GPS check: distance between device location and selected venue.
+	// nil gpsPassed means no device GPS — not penalised.
 	var gpsPassed *bool
 	var gpsDistanceM *int
 	if p.SubmissionLat != nil && p.SubmissionLng != nil {
@@ -162,12 +135,41 @@ func Create(ctx context.Context, db *pgxpool.Pool, p CreateParams) (string, erro
 		gpsPassed = &passed
 	}
 
-	tx.Exec(ctx,
-		`UPDATE check_ins SET exif_timestamp=(SELECT exif_timestamp FROM photos WHERE id=$2),
-		 exif_check_passed=$3, gps_check_passed=$4, gps_distance_m=$5
-		 WHERE id=$1`,
-		id, p.PhotoIDs[0], exifPassed, gpsPassed, gpsDistanceM,
+	// Active/admin users go public unless a check with data present actually failed.
+	checkFailed := (exifPassed != nil && !*exifPassed) || (gpsPassed != nil && !*gpsPassed)
+	status := "pending"
+	if (p.UserRole == "active" || p.UserRole == "admin") && !checkFailed {
+		status = "public"
+	}
+
+	id := uuid.NewString()
+	_, err = tx.Exec(ctx,
+		`INSERT INTO check_ins (id, user_id, drink_id, score, review, drink_date, status,
+		                        location_name, location_lat, location_lng,
+		                        location_osm_id, location_osm_type,
+		                        submission_lat, submission_lng, submission_accuracy,
+		                        exif_timestamp, exif_check_passed, gps_check_passed, gps_distance_m,
+		                        edit_deadline)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7::checkin_status,$8,$9,$10,$11,$12,$13,$14,$15,
+		         (SELECT exif_timestamp FROM photos WHERE id=$16),$17,$18,$19,
+		         NOW()+INTERVAL '24 hours')`,
+		id, p.UserID, p.DrinkID, p.Score, p.Review, drinkDate, status,
+		p.LocationName, p.LocationLat, p.LocationLng,
+		p.LocationOsmID, p.LocationOsmType,
+		p.SubmissionLat, p.SubmissionLng, p.SubmissionAccuracy,
+		p.PhotoIDs[0], exifPassed, gpsPassed, gpsDistanceM,
 	)
+	if err != nil {
+		return "", err
+	}
+
+	// Link photos to this check-in
+	for i, photoID := range p.PhotoIDs {
+		tx.Exec(ctx,
+			`UPDATE photos SET checkin_id=$1, sort_order=$2 WHERE id=$3`,
+			id, i, photoID,
+		)
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return "", err
