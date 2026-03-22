@@ -9,6 +9,8 @@ import (
 	"github.com/patrikhson/french75/internal/middleware"
 )
 
+
+
 type Handler struct {
 	db             *pgxpool.Pool
 	photoURLPrefix string
@@ -60,7 +62,11 @@ func (h *Handler) index(w http.ResponseWriter, r *http.Request) {
   <nav>
     <a href="/checkins/new">+ Check-in</a> |
     <a href="/feed/following">Following</a> |
-    <a href="/drinks">Drinks</a> |
+    <a href="/drinks">Drinks</a> |`)
+	if middleware.GetUserRole(r) == "admin" {
+		fmt.Fprint(w, ` <a href="/admin">Admin</a> |`)
+	}
+	fmt.Fprint(w, `
     <a href="/auth/logout" hx-post="/auth/logout" hx-push-url="true">Log out</a>
   </nav>
 </header>
