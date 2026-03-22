@@ -524,6 +524,7 @@ const loginHTML = `<!DOCTYPE html>
   <label>Email address<br><input type="email" id="email" name="email" required></label><br><br>
   <button type="submit">Log in with passkey</button>
 </form>
+<p><a href="/auth/request">Request an account</a></p>
 <script>
 document.getElementById('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
