@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/joho/godotenv"
+	"github.com/patrikhson/french75/internal/admin"
 	"github.com/patrikhson/french75/internal/auth"
 	"github.com/patrikhson/french75/internal/checkin"
 	"github.com/patrikhson/french75/internal/config"
@@ -95,6 +96,8 @@ func main() {
 	feed.NewHandler(pool, cfg.StorageURLPrefix).RegisterRoutes(mux, auth.RequireAuth(pool))
 	social.NewHandler(pool).RegisterRoutes(mux, auth.RequireAuth(pool))
 	user.NewHandler(pool, cfg.StorageURLPrefix).RegisterRoutes(mux, auth.RequireAuth(pool))
+
+	admin.NewHandler(pool, mailer, cfg.AppBaseURL).RegisterRoutes(mux, auth.RequireRole(pool, "admin"))
 
 	// Serve uploaded photos as static files
 	mux.Handle("GET /photos/", http.StripPrefix("/photos/",

@@ -148,17 +148,22 @@ func (h *Handler) verifyEmail(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------
 
 func (h *Handler) SendApprovalEmail(ctx context.Context, requestID string) error {
+	return SendApprovalEmail(ctx, h.db, h.mailer, h.baseURL, requestID)
+}
+
+// SendApprovalEmail is a package-level function so the admin handler can call it
+// without a circular import on the auth.Handler.
+func SendApprovalEmail(ctx context.Context, db *pgxpool.Pool, mailer *mail.Mailer, baseURL, requestID string) error {
 	var name, email string
-	err := h.db.QueryRow(ctx,
+	err := db.QueryRow(ctx,
 		`SELECT name, email FROM registration_requests WHERE id = $1`, requestID,
 	).Scan(&name, &email)
 	if err != nil {
 		return err
 	}
 
-	// Create passkey registration token (48h)
 	regToken := uuid.NewString()
-	_, err = h.db.Exec(ctx,
+	_, err = db.Exec(ctx,
 		`UPDATE registration_requests
 		 SET status = 'approved', passkey_token = $1, passkey_token_expires_at = NOW() + INTERVAL '48 hours'
 		 WHERE id = $2`,
@@ -168,8 +173,8 @@ func (h *Handler) SendApprovalEmail(ctx context.Context, requestID string) error
 		return err
 	}
 
-	link := h.baseURL + "/auth/register?token=" + regToken
-	return h.mailer.SendWelcome(email, name, link)
+	link := baseURL + "/auth/register?token=" + regToken
+	return mailer.SendWelcome(email, name, link)
 }
 
 // ---------------------------------------------------------------
