@@ -100,7 +100,7 @@ func (h *Handler) profile(w http.ResponseWriter, r *http.Request) {
 <body>%s<main>
 <h2>%s</h2>
 <p>@%s · %d check-ins · %d followers · %d following</p>`,
-		layout.Nav(middleware.GetUserRole(r)), p.DisplayName, p.Username,
+		p.DisplayName, layout.Nav(middleware.GetUserRole(r)), p.DisplayName, p.Username,
 		p.CheckinCount, followers, following,
 	)
 
