@@ -40,18 +40,8 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body, _ := json.Marshal(map[string]any{
-		"input":               q,
-		"languageCode":        "sv",
-		"includedPrimaryTypes": []string{"establishment", "bar", "restaurant", "food", "point_of_interest"},
-		"locationBias": map[string]any{
-			"circle": map[string]any{
-				"center": map[string]any{
-					"latitude":  59.33,
-					"longitude": 18.07,
-				},
-				"radius": 200000.0, // 200 km around Stockholm
-			},
-		},
+		"input":        q,
+		"languageCode": "sv",
 	})
 
 	req, err := http.NewRequestWithContext(r.Context(), "POST",
