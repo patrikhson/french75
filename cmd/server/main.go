@@ -9,9 +9,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/joho/godotenv"
+	"github.com/patrikhson/french75/internal/auth"
 	"github.com/patrikhson/french75/internal/config"
 	"github.com/patrikhson/french75/internal/db"
+	"github.com/patrikhson/french75/internal/mail"
+	"github.com/patrikhson/french75/internal/middleware"
 )
 
 func main() {
@@ -31,17 +35,42 @@ func main() {
 	defer pool.Close()
 	log.Println("database connected and migrations applied")
 
+	// WebAuthn
+	wa, err := webauthn.New(&webauthn.Config{
+		RPDisplayName: cfg.WebAuthnRPDisplayName,
+		RPID:          cfg.WebAuthnRPID,
+		RPOrigins:     []string{cfg.WebAuthnRPOrigin},
+	})
+	if err != nil {
+		log.Fatalf("webauthn: %v", err)
+	}
+
+	mailer := mail.New(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPFrom)
+
+	authHandler := auth.NewHandler(pool, wa, mailer, cfg.AppBaseURL, cfg.SessionSecret, cfg.IsProd)
+
+	// Session cleanup goroutine
+	go func() {
+		t := time.NewTicker(1 * time.Hour)
+		defer t.Stop()
+		for range t.C {
+			auth.CleanupSessions(context.Background(), pool)
+		}
+	}()
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
 
-	// TODO: register auth, checkin, drink, feed, admin handlers
+	authHandler.RegisterRoutes(mux)
+
+	handler := middleware.Logging(middleware.SecurityHeaders(mux))
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
-		Handler:      mux,
+		Handler:      handler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
