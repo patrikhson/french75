@@ -187,9 +187,10 @@ func SendApprovalEmail(ctx context.Context, db *pgxpool.Pool, mailer *mail.Maile
 
 	// Move the credential to the user.
 	_, err = db.Exec(ctx,
-		`INSERT INTO webauthn_credentials (user_id, credential_id, public_key, aaguid, sign_count, name)
-		 VALUES ($1, $2, $3, $4, $5, 'Primary passkey')`,
-		userID, cred.ID, cred.PublicKey, cred.AAGUID, cred.SignCount,
+		`INSERT INTO webauthn_credentials
+		 (user_id, credential_id, public_key, aaguid, sign_count, backup_eligible, backup_state, name)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, 'Primary passkey')`,
+		userID, cred.ID, cred.PublicKey, cred.AAGUID, cred.SignCount, cred.BackupEligible, cred.BackupState,
 	)
 	if err != nil {
 		return fmt.Errorf("store credential: %w", err)
@@ -300,10 +301,12 @@ func (h *Handler) finishRegisterPasskey(w http.ResponseWriter, r *http.Request) 
 	// Store credential in the registration request — user account is created when admin approves.
 	pubKey, _ := json.Marshal(credential.PublicKey)
 	stored := storedCredential{
-		ID:        credential.ID,
-		PublicKey: pubKey,
-		AAGUID:    credential.Authenticator.AAGUID,
-		SignCount: credential.Authenticator.SignCount,
+		ID:             credential.ID,
+		PublicKey:      pubKey,
+		AAGUID:         credential.Authenticator.AAGUID,
+		SignCount:      credential.Authenticator.SignCount,
+		BackupEligible: credential.Flags.BackupEligible,
+		BackupState:    credential.Flags.BackupState,
 	}
 	storedJSON, _ := json.Marshal(stored)
 	h.db.Exec(ctx,
@@ -322,10 +325,12 @@ func (h *Handler) finishRegisterPasskey(w http.ResponseWriter, r *http.Request) 
 
 // storedCredential is the subset of webauthn.Credential persisted in registration_requests.
 type storedCredential struct {
-	ID        []byte `json:"id"`
-	PublicKey []byte `json:"public_key"`
-	AAGUID    []byte `json:"aaguid"`
-	SignCount  uint32 `json:"sign_count"`
+	ID             []byte `json:"id"`
+	PublicKey      []byte `json:"public_key"`
+	AAGUID         []byte `json:"aaguid"`
+	SignCount      uint32 `json:"sign_count"`
+	BackupEligible bool   `json:"backup_eligible"`
+	BackupState    bool   `json:"backup_state"`
 }
 
 // ---------------------------------------------------------------
@@ -440,7 +445,8 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) loadWAUser(ctx context.Context, userID, name, email string) (*waUser, error) {
 	rows, err := h.db.Query(ctx,
-		`SELECT credential_id, public_key, sign_count FROM webauthn_credentials WHERE user_id = $1`,
+		`SELECT credential_id, public_key, sign_count, backup_eligible, backup_state
+		 FROM webauthn_credentials WHERE user_id = $1`,
 		userID,
 	)
 	if err != nil {
@@ -452,7 +458,8 @@ func (h *Handler) loadWAUser(ctx context.Context, userID, name, email string) (*
 	for rows.Next() {
 		var credID, pubKeyJSON []byte
 		var signCount uint32
-		rows.Scan(&credID, &pubKeyJSON, &signCount)
+		var backupEligible, backupState bool
+		rows.Scan(&credID, &pubKeyJSON, &signCount, &backupEligible, &backupState)
 
 		var pubKey []byte
 		json.Unmarshal(pubKeyJSON, &pubKey)
@@ -460,6 +467,10 @@ func (h *Handler) loadWAUser(ctx context.Context, userID, name, email string) (*
 		u.credentials = append(u.credentials, webauthn.Credential{
 			ID:        credID,
 			PublicKey: pubKey,
+			Flags: webauthn.CredentialFlags{
+				BackupEligible: backupEligible,
+				BackupState:    backupState,
+			},
 			Authenticator: webauthn.Authenticator{
 				SignCount: signCount,
 			},

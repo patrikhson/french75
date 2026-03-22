@@ -1,0 +1,3 @@
+ALTER TABLE webauthn_credentials
+    ADD COLUMN backup_eligible BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN backup_state    BOOLEAN NOT NULL DEFAULT FALSE;
