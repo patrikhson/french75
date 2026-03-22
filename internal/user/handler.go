@@ -55,7 +55,8 @@ func (h *Handler) profile(w http.ResponseWriter, r *http.Request) {
 	// Recent public check-ins
 	rows, err := h.db.Query(r.Context(),
 		`SELECT c.id, d.name, c.score, LEFT(c.review, 200), c.drink_date,
-		        c.location_name, COALESCE(ph.thumbnail_path,''), c.submitted_at
+		        c.location_name, COALESCE(ph.thumbnail_path,''), c.submitted_at,
+		        c.location_lat, c.location_lng
 		 FROM check_ins c
 		 JOIN drinks d ON d.id = c.drink_id
 		 LEFT JOIN LATERAL (
@@ -76,12 +77,14 @@ func (h *Handler) profile(w http.ResponseWriter, r *http.Request) {
 		Score                                           int
 		DrinkDate                                       time.Time
 		SubmittedAt                                     time.Time
+		Lat, Lng                                        float64
 	}
 	var checkins []checkinRow
 	for rows.Next() {
 		var c checkinRow
 		rows.Scan(&c.ID, &c.DrinkName, &c.Score, &c.Review,
-			&c.DrinkDate, &c.LocationName, &c.Thumbnail, &c.SubmittedAt)
+			&c.DrinkDate, &c.LocationName, &c.Thumbnail, &c.SubmittedAt,
+			&c.Lat, &c.Lng)
 		checkins = append(checkins, c)
 	}
 
@@ -91,6 +94,7 @@ func (h *Handler) profile(w http.ResponseWriter, r *http.Request) {
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>%s — French 75 Tracker</title>
 <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 </head>
 <body>
 <p><a href="/">← Feed</a></p>
@@ -142,6 +146,30 @@ func (h *Handler) profile(w http.ResponseWriter, r *http.Request) {
 
 	if len(checkins) == 0 {
 		fmt.Fprint(w, `<p>No public check-ins yet.</p>`)
+	}
+
+	if len(checkins) > 0 {
+		fmt.Fprint(w, `<hr><h3>Map</h3><div id="profileMap" style="height:300px;border-radius:4px;"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>(function(){
+  const map = L.map('profileMap');
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'© OpenStreetMap contributors',maxZoom:19
+  }).addTo(map);
+  const group = L.featureGroup();
+`)
+		for _, c := range checkins {
+			fmt.Fprintf(w, "  L.marker([%f,%f]).bindPopup('<a href=\"/checkins/%s\">%s</a>').addTo(group);\n",
+				c.Lat, c.Lng, c.ID, c.DrinkName)
+		}
+		fmt.Fprint(w, `  group.addTo(map);
+  if (group.getLayers().length === 1) {
+    map.setView(group.getLayers()[0].getLatLng(), 14);
+  } else {
+    map.fitBounds(group.getBounds().pad(0.15));
+  }
+})();
+</script>`)
 	}
 
 	fmt.Fprint(w, `</body></html>`)

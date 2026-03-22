@@ -50,7 +50,9 @@ func (h *Handler) showNew(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>New Check-in — French 75 Tracker</title></head>
+<title>New Check-in — French 75 Tracker</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+</head>
 <body>
 <h2>New Check-in</h2>
 <form id="checkinForm" method="POST" action="/checkins">
@@ -81,6 +83,7 @@ func (h *Handler) showNew(w http.ResponseWriter, r *http.Request) {
   <input type="hidden" name="location_osm_id" id="locationOsmId">
   <input type="hidden" name="location_osm_type" id="locationOsmType">
   <div id="locationDisplay"></div>
+  <div id="locationMap" style="height:200px;margin-top:8px;display:none;border-radius:4px;"></div>
   </label><br><br>
 
   <input type="hidden" name="submission_lat" id="submissionLat">
@@ -134,9 +137,27 @@ async function searchLocation(q) {
       document.getElementById('locationDisplay').textContent = '✓ ' + r.display_name;
       document.getElementById('locationSearch').value = '';
       div.innerHTML = '';
+      showLocationMap(parseFloat(r.lat), parseFloat(r.lon), r.display_name);
     });
     div.appendChild(btn);
   });
+}
+
+// Location mini-map
+let _map = null, _marker = null;
+function showLocationMap(lat, lng, name) {
+  const el = document.getElementById('locationMap');
+  el.style.display = 'block';
+  if (!_map) {
+    _map = L.map('locationMap').setView([lat, lng], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors', maxZoom: 19
+    }).addTo(_map);
+    _marker = L.marker([lat, lng]).addTo(_map).bindPopup(name).openPopup();
+  } else {
+    _map.setView([lat, lng], 15);
+    _marker.setLatLng([lat, lng]).bindPopup(name).openPopup();
+  }
 }
 
 // Photo upload
@@ -168,6 +189,7 @@ async function uploadPhoto(file) {
   document.getElementById('photoPreview').appendChild(img);
 }
 </script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </body></html>`, today, today)
 }
 
@@ -250,7 +272,9 @@ func (h *Handler) show(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>%s Check-in — French 75 Tracker</title></head>
+<title>%s Check-in — French 75 Tracker</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+</head>
 <body>
 <h2>%s</h2>
 <p><strong>Score:</strong> %d/100</p>
@@ -278,5 +302,21 @@ func (h *Handler) show(w http.ResponseWriter, r *http.Request) {
 			ci.EditDeadline.Format("15:04 on 2 Jan"))
 	}
 
+	fmt.Fprintf(w,
+		`<div id="map" style="height:250px;margin:16px 0;border-radius:4px;"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function(){
+  const map = L.map('map').setView([%f, %f], 15);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors', maxZoom: 19
+  }).addTo(map);
+  L.marker([%f, %f]).addTo(map).bindPopup(%q).openPopup();
+})();
+</script>`,
+		ci.LocationLat, ci.LocationLng,
+		ci.LocationLat, ci.LocationLng,
+		ci.LocationName,
+	)
 	fmt.Fprint(w, `<p><a href="/checkins/new">New check-in</a></p></body></html>`)
 }
