@@ -14,6 +14,7 @@ import (
 	"github.com/patrikhson/french75/internal/auth"
 	"github.com/patrikhson/french75/internal/config"
 	"github.com/patrikhson/french75/internal/db"
+	"github.com/patrikhson/french75/internal/drink"
 	"github.com/patrikhson/french75/internal/mail"
 	"github.com/patrikhson/french75/internal/middleware"
 )
@@ -65,6 +66,12 @@ func main() {
 	})
 
 	authHandler.RegisterRoutes(mux)
+
+	drinkHandler := drink.NewHandler(pool)
+	drinkHandler.RegisterRoutes(mux,
+		auth.RequireAuth(pool),
+		auth.RequireRole(pool, "admin"),
+	)
 
 	handler := middleware.Logging(middleware.SecurityHeaders(mux))
 
