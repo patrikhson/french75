@@ -412,7 +412,8 @@ func (h *Handler) finishLogin(w http.ResponseWriter, r *http.Request) {
 	waUser, _ := h.loadWAUser(ctx, userID, name, email)
 	credential, err := h.webAuthn.FinishLogin(waUser, sessionData, r)
 	if err != nil {
-		http.Error(w, "Passkey verification failed", http.StatusUnauthorized)
+		fmt.Printf("webauthn FinishLogin error: %v\n", err)
+		http.Error(w, "Passkey verification failed: "+err.Error(), http.StatusUnauthorized)
 		return
 	}
 
