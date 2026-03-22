@@ -117,6 +117,20 @@ If you did not request this, ignore this email.
 	return m.Send(to, "Verify your email — French 75 Tracker", body)
 }
 
+func (m *Mailer) SendApproved(to, name, loginURL string) error {
+	body := fmt.Sprintf(`Hi %s,
+
+Your request to join French 75 Tracker has been approved.
+
+Log in using your passkey at:
+%s
+
+Welcome aboard,
+— French 75 Tracker`, name, loginURL)
+
+	return m.Send(to, "You're in — French 75 Tracker", body)
+}
+
 func (m *Mailer) SendWelcome(to, name, link string) error {
 	body := fmt.Sprintf(`Hi %s,
 

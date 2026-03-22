@@ -16,7 +16,7 @@ type Counts struct {
 
 func GetCounts(ctx context.Context, db *pgxpool.Pool) Counts {
 	var c Counts
-	db.QueryRow(ctx, `SELECT COUNT(*) FROM registration_requests WHERE status='pending' AND email_verified=TRUE`).Scan(&c.PendingRegistrations)
+	db.QueryRow(ctx, `SELECT COUNT(*) FROM registration_requests WHERE status='pending' AND email_verified=TRUE AND pending_credential IS NOT NULL`).Scan(&c.PendingRegistrations)
 	db.QueryRow(ctx, `SELECT COUNT(*) FROM check_ins WHERE status='pending'`).Scan(&c.PendingCheckins)
 	db.QueryRow(ctx, `SELECT COUNT(*) FROM drink_requests WHERE status='pending'`).Scan(&c.PendingDrinkRequests)
 	db.QueryRow(ctx, `SELECT COUNT(*) FROM spam_flags WHERE reviewed_at IS NULL`).Scan(&c.UnreviewedFlags)
@@ -38,7 +38,7 @@ func ListPendingRegistrations(ctx context.Context, db *pgxpool.Pool) ([]Registra
 	rows, err := db.Query(ctx,
 		`SELECT id, name, email, email_verified, status::text, created_at
 		 FROM registration_requests
-		 WHERE status='pending' AND email_verified=TRUE
+		 WHERE status='pending' AND email_verified=TRUE AND pending_credential IS NOT NULL
 		 ORDER BY created_at`)
 	if err != nil {
 		return nil, err

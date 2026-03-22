@@ -113,7 +113,7 @@ func (h *Handler) showRequestSuccess(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------
-// Step 2: Email verification
+// Step 2: Email verification → redirect to passkey registration
 // ---------------------------------------------------------------
 
 func (h *Handler) verifyEmail(w http.ResponseWriter, r *http.Request) {
@@ -124,22 +124,22 @@ func (h *Handler) verifyEmail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+
+	// Generate a passkey token so the user can register their passkey immediately.
+	passkeyToken := uuid.NewString()
 	res, err := h.db.Exec(ctx,
 		`UPDATE registration_requests
-		 SET email_verified = TRUE, email_verified_at = NOW()
+		 SET email_verified = TRUE, email_verified_at = NOW(),
+		     passkey_token = $2, passkey_token_expires_at = NOW() + INTERVAL '24 hours'
 		 WHERE token = $1 AND expires_at > NOW() AND email_verified = FALSE`,
-		token,
+		token, passkeyToken,
 	)
 	if err != nil || res.RowsAffected() == 0 {
 		http.Error(w, "Invalid or expired link", http.StatusBadRequest)
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, `<!DOCTYPE html><html><body>
-<h2>Email verified</h2>
-<p>Your request has been submitted. You'll receive an email when an admin approves your account.</p>
-</body></html>`)
+	http.Redirect(w, r, "/auth/register?token="+passkeyToken, http.StatusSeeOther)
 }
 
 // ---------------------------------------------------------------
@@ -153,28 +153,51 @@ func (h *Handler) SendApprovalEmail(ctx context.Context, requestID string) error
 
 // SendApprovalEmail is a package-level function so the admin handler can call it
 // without a circular import on the auth.Handler.
+// It creates the user account, moves the pending credential, and sends an approval email.
 func SendApprovalEmail(ctx context.Context, db *pgxpool.Pool, mailer *mail.Mailer, baseURL, requestID string) error {
 	var name, email string
+	var credJSON []byte
 	err := db.QueryRow(ctx,
-		`SELECT name, email FROM registration_requests WHERE id = $1`, requestID,
-	).Scan(&name, &email)
+		`SELECT name, email, pending_credential FROM registration_requests
+		 WHERE id = $1 AND status = 'pending' AND pending_credential IS NOT NULL`,
+		requestID,
+	).Scan(&name, &email, &credJSON)
 	if err != nil {
-		return err
+		return fmt.Errorf("registration not found or passkey not yet registered: %w", err)
 	}
 
-	regToken := uuid.NewString()
+	var cred storedCredential
+	if err := json.Unmarshal(credJSON, &cred); err != nil {
+		return fmt.Errorf("corrupt credential data: %w", err)
+	}
+
+	// Create the user account.
+	userID := uuid.NewString()
 	_, err = db.Exec(ctx,
-		`UPDATE registration_requests
-		 SET status = 'approved', passkey_token = $1, passkey_token_expires_at = NOW() + INTERVAL '48 hours'
-		 WHERE id = $2`,
-		regToken, requestID,
+		`INSERT INTO users (id, username, display_name, role) VALUES ($1, $2, $3, 'passive')`,
+		userID, email, name,
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("create user: %w", err)
 	}
 
-	link := baseURL + "/auth/register?token=" + regToken
-	return mailer.SendWelcome(email, name, link)
+	// Move the credential to the user.
+	_, err = db.Exec(ctx,
+		`INSERT INTO webauthn_credentials (user_id, credential_id, public_key, aaguid, sign_count, name)
+		 VALUES ($1, $2, $3, $4, $5, 'Primary passkey')`,
+		userID, cred.ID, cred.PublicKey, cred.AAGUID, cred.SignCount,
+	)
+	if err != nil {
+		return fmt.Errorf("store credential: %w", err)
+	}
+
+	// Mark request completed.
+	db.Exec(ctx,
+		`UPDATE registration_requests SET status = 'completed', user_id = $1 WHERE id = $2`,
+		userID, requestID,
+	)
+
+	return mailer.SendApproved(email, name, baseURL+"/auth/login")
 }
 
 // ---------------------------------------------------------------
@@ -191,7 +214,8 @@ func (h *Handler) showRegisterPasskey(w http.ResponseWriter, r *http.Request) {
 	var name string
 	err := h.db.QueryRow(r.Context(),
 		`SELECT name FROM registration_requests
-		 WHERE passkey_token = $1 AND passkey_token_expires_at > NOW() AND status = 'approved'`,
+		 WHERE passkey_token = $1 AND passkey_token_expires_at > NOW()
+		   AND status = 'pending' AND email_verified = TRUE`,
 		token,
 	).Scan(&name)
 	if err != nil {
@@ -210,7 +234,8 @@ func (h *Handler) beginRegisterPasskey(w http.ResponseWriter, r *http.Request) {
 	var reqID, name, email string
 	err := h.db.QueryRow(ctx,
 		`SELECT id, name, email FROM registration_requests
-		 WHERE passkey_token = $1 AND passkey_token_expires_at > NOW() AND status = 'approved'`,
+		 WHERE passkey_token = $1 AND passkey_token_expires_at > NOW()
+		   AND status = 'pending' AND email_verified = TRUE`,
 		token,
 	).Scan(&reqID, &name, &email)
 	if err != nil {
@@ -246,7 +271,8 @@ func (h *Handler) finishRegisterPasskey(w http.ResponseWriter, r *http.Request) 
 	var sessionJSON []byte
 	err := h.db.QueryRow(ctx,
 		`SELECT id, name, email, webauthn_session FROM registration_requests
-		 WHERE passkey_token = $1 AND passkey_token_expires_at > NOW() AND status = 'approved'`,
+		 WHERE passkey_token = $1 AND passkey_token_expires_at > NOW()
+		   AND status = 'pending' AND email_verified = TRUE`,
 		token,
 	).Scan(&reqID, &name, &email, &sessionJSON)
 	if err != nil {
@@ -267,38 +293,35 @@ func (h *Handler) finishRegisterPasskey(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Create user account
-	userID := uuid.NewString()
-	username := email // use email as initial username, user can change later
-	_, err = h.db.Exec(ctx,
-		`INSERT INTO users (id, username, display_name, role)
-		 VALUES ($1, $2, $3, 'passive')`,
-		userID, username, name,
-	)
-	if err != nil {
-		http.Error(w, "Could not create account", http.StatusInternalServerError)
-		return
-	}
-
-	// Store passkey credential
-	credID, _ := json.Marshal(credential.ID)
+	// Store credential in the registration request — user account is created when admin approves.
 	pubKey, _ := json.Marshal(credential.PublicKey)
+	stored := storedCredential{
+		ID:        credential.ID,
+		PublicKey: pubKey,
+		AAGUID:    credential.Authenticator.AAGUID,
+		SignCount: credential.Authenticator.SignCount,
+	}
+	storedJSON, _ := json.Marshal(stored)
 	h.db.Exec(ctx,
-		`INSERT INTO webauthn_credentials (user_id, credential_id, public_key, aaguid, sign_count, name)
-		 VALUES ($1, $2, $3, $4, $5, 'Primary passkey')`,
-		userID, credential.ID, pubKey, credential.Authenticator.AAGUID, credential.Authenticator.SignCount,
+		`UPDATE registration_requests
+		 SET pending_credential = $1, passkey_registered_at = NOW()
+		 WHERE id = $2`,
+		storedJSON, reqID,
 	)
 
-	// Mark request as completed
-	h.db.Exec(ctx,
-		`UPDATE registration_requests SET status = 'completed', user_id = $1 WHERE id = $2`,
-		userID, reqID,
-	)
-	_ = credID
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprint(w, `<!DOCTYPE html><html><body>
+<h2>Passkey registered!</h2>
+<p>Your request is now in the queue. You'll receive an email once an admin approves your account.</p>
+</body></html>`)
+}
 
-	// Create session and redirect to home
-	CreateSession(ctx, h.db, w, r, userID, h.isProd)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+// storedCredential is the subset of webauthn.Credential persisted in registration_requests.
+type storedCredential struct {
+	ID        []byte `json:"id"`
+	PublicKey []byte `json:"public_key"`
+	AAGUID    []byte `json:"aaguid"`
+	SignCount  uint32 `json:"sign_count"`
 }
 
 // ---------------------------------------------------------------
