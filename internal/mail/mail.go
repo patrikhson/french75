@@ -1,8 +1,11 @@
 package mail
 
 import (
+	"bytes"
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
+	"mime/quotedprintable"
 	"net"
 	"net/smtp"
 	"strings"
@@ -20,14 +23,40 @@ func New(host, port, user, pass, from string) *Mailer {
 	return &Mailer{host: host, port: port, from: from, user: user, pass: pass}
 }
 
+// encodeHeader encodes a header value with RFC 2047 base64 if it contains non-ASCII.
+func encodeHeader(s string) string {
+	for _, r := range s {
+		if r > 127 {
+			return "=?utf-8?B?" + base64.StdEncoding.EncodeToString([]byte(s)) + "?="
+		}
+	}
+	return s
+}
+
 func (m *Mailer) Send(to, subject, body string) error {
 	addr := m.host + ":" + m.port
 
+	// Encode body as quoted-printable so no raw 8-bit bytes are sent.
+	// This avoids requiring SMTPUTF8 or 8BITMIME from the relay.
+	var qpBuf bytes.Buffer
+	qpw := quotedprintable.NewWriter(&qpBuf)
+	fmt.Fprint(qpw, body)
+	qpw.Close()
+
+	msg := strings.Join([]string{
+		"From: French 75 Tracker <" + m.from + ">",
+		"To: " + to,
+		"Subject: " + encodeHeader(subject),
+		"MIME-Version: 1.0",
+		"Content-Type: text/plain; charset=utf-8",
+		"Content-Transfer-Encoding: quoted-printable",
+		"",
+		qpBuf.String(),
+	}, "\r\n")
+
 	// Dial manually instead of using smtp.SendMail, which passes the dial
 	// address as the TLS ServerName. Connecting to "localhost" while the
-	// server's cert is for another hostname ("mail.paftech.se") causes a
-	// cert verification failure. For localhost we skip cert verification
-	// (loopback traffic; TLS adds no security value here).
+	// server's cert is for another hostname causes a cert verification failure.
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
 		return err
@@ -53,16 +82,6 @@ func (m *Mailer) Send(to, subject, body string) error {
 			return err
 		}
 	}
-
-	msg := strings.Join([]string{
-		"From: French 75 Tracker <" + m.from + ">",
-		"To: " + to,
-		"Subject: " + subject,
-		"MIME-Version: 1.0",
-		"Content-Type: text/plain; charset=utf-8",
-		"",
-		body,
-	}, "\r\n")
 
 	if err := c.Mail(m.from); err != nil {
 		return err
