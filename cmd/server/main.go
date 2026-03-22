@@ -22,6 +22,7 @@ import (
 	"github.com/patrikhson/french75/internal/middleware"
 	"github.com/patrikhson/french75/internal/photo"
 	"github.com/patrikhson/french75/internal/social"
+	"github.com/patrikhson/french75/internal/user"
 )
 
 func main() {
@@ -93,6 +94,7 @@ func main() {
 
 	feed.NewHandler(pool, cfg.StorageURLPrefix).RegisterRoutes(mux, auth.RequireAuth(pool))
 	social.NewHandler(pool).RegisterRoutes(mux, auth.RequireAuth(pool))
+	user.NewHandler(pool, cfg.StorageURLPrefix).RegisterRoutes(mux, auth.RequireAuth(pool))
 
 	// Serve uploaded photos as static files
 	mux.Handle("GET /photos/", http.StripPrefix("/photos/",

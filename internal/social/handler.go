@@ -19,6 +19,7 @@ func NewHandler(db *pgxpool.Pool) *Handler {
 func (h *Handler) RegisterRoutes(mux *http.ServeMux, requireAuth func(http.Handler) http.Handler) {
 	mux.Handle("POST /checkins/{id}/react", requireAuth(http.HandlerFunc(h.react)))
 	mux.Handle("POST /checkins/{id}/flag", requireAuth(http.HandlerFunc(h.flag)))
+	mux.Handle("POST /users/{id}/follow", requireAuth(http.HandlerFunc(h.follow)))
 }
 
 // ---------------------------------------------------------------
@@ -56,6 +57,33 @@ func (h *Handler) react(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprintf(w, `<span id="%s"%s>%s %d</span>`, spanID, style, label, count)
+}
+
+// ---------------------------------------------------------------
+// Follows
+// ---------------------------------------------------------------
+
+func (h *Handler) follow(w http.ResponseWriter, r *http.Request) {
+	followerID := middleware.GetUserID(r)
+	followingID := r.PathValue("id")
+
+	nowFollowing, err := ToggleFollow(r.Context(), h.db, followerID, followingID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Return HTMX fragment: updated follow button
+	w.Header().Set("Content-Type", "text/html")
+	if nowFollowing {
+		fmt.Fprintf(w,
+			`<button hx-post="/users/%s/follow" hx-target="this" hx-swap="outerHTML">Unfollow</button>`,
+			followingID)
+	} else {
+		fmt.Fprintf(w,
+			`<button hx-post="/users/%s/follow" hx-target="this" hx-swap="outerHTML">Follow</button>`,
+			followingID)
+	}
 }
 
 // ---------------------------------------------------------------

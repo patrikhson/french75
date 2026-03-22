@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/patrikhson/french75/internal/middleware"
 )
 
 type Handler struct {
@@ -20,6 +21,7 @@ func NewHandler(db *pgxpool.Pool, photoURLPrefix string) *Handler {
 func (h *Handler) RegisterRoutes(mux *http.ServeMux, requireAuth func(http.Handler) http.Handler) {
 	mux.Handle("GET /", requireAuth(http.HandlerFunc(h.index)))
 	mux.Handle("GET /feed", requireAuth(http.HandlerFunc(h.index)))
+	mux.Handle("GET /feed/following", requireAuth(http.HandlerFunc(h.following)))
 }
 
 func (h *Handler) index(w http.ResponseWriter, r *http.Request) {
@@ -57,6 +59,7 @@ func (h *Handler) index(w http.ResponseWriter, r *http.Request) {
   <h1>French 75 Tracker</h1>
   <nav>
     <a href="/checkins/new">+ Check-in</a> |
+    <a href="/feed/following">Following</a> |
     <a href="/drinks">Drinks</a> |
     <a href="/auth/logout" hx-post="/auth/logout" hx-push-url="true">Log out</a>
   </nav>
@@ -73,6 +76,69 @@ func (h *Handler) index(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w,
 			`<div hx-get="/feed?before=%s" hx-trigger="revealed" hx-swap="outerHTML" hx-target="this">
 			   <a href="/feed?before=%s">Load more</a>
+			 </div>`,
+			last.UTC().Format(time.RFC3339),
+			last.UTC().Format(time.RFC3339),
+		)
+	}
+
+	if !isHTMX {
+		fmt.Fprint(w, `</main></body></html>`)
+	}
+}
+
+func (h *Handler) following(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r)
+
+	before := time.Now().Add(time.Second)
+	if c := r.URL.Query().Get("before"); c != "" {
+		if t, err := time.Parse(time.RFC3339, c); err == nil {
+			before = t
+		}
+	}
+
+	items, err := ListFollowing(r.Context(), h.db, userID, before)
+	if err != nil {
+		http.Error(w, "Server error", http.StatusInternalServerError)
+		return
+	}
+
+	isHTMX := r.Header.Get("HX-Request") != ""
+
+	if !isHTMX {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Following — French 75 Tracker</title>
+<script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+</head>
+<body>
+<header>
+  <h1>Following</h1>
+  <nav>
+    <a href="/">All</a> |
+    <a href="/checkins/new">+ Check-in</a> |
+    <a href="/drinks">Drinks</a> |
+    <a href="/auth/logout" hx-post="/auth/logout" hx-push-url="true">Log out</a>
+  </nav>
+</header>
+<main id="feed">`)
+	}
+
+	if len(items) == 0 && !isHTMX {
+		fmt.Fprint(w, `<p>Nothing here yet. Follow some people to see their check-ins.</p>`)
+	}
+
+	for _, it := range items {
+		h.renderCard(w, it)
+	}
+
+	if len(items) == pageSize {
+		last := items[len(items)-1].SubmittedAt
+		fmt.Fprintf(w,
+			`<div hx-get="/feed/following?before=%s" hx-trigger="revealed" hx-swap="outerHTML" hx-target="this">
+			   <a href="/feed/following?before=%s">Load more</a>
 			 </div>`,
 			last.UTC().Format(time.RFC3339),
 			last.UTC().Format(time.RFC3339),
