@@ -12,11 +12,14 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/joho/godotenv"
 	"github.com/patrikhson/french75/internal/auth"
+	"github.com/patrikhson/french75/internal/checkin"
 	"github.com/patrikhson/french75/internal/config"
 	"github.com/patrikhson/french75/internal/db"
 	"github.com/patrikhson/french75/internal/drink"
+	"github.com/patrikhson/french75/internal/location"
 	"github.com/patrikhson/french75/internal/mail"
 	"github.com/patrikhson/french75/internal/middleware"
+	"github.com/patrikhson/french75/internal/photo"
 )
 
 func main() {
@@ -26,6 +29,10 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("config: %v", err)
+	}
+
+	if err := os.MkdirAll(cfg.StoragePath, 0755); err != nil {
+		log.Fatalf("storage dir: %v", err)
 	}
 
 	ctx := context.Background()
@@ -72,6 +79,19 @@ func main() {
 		auth.RequireAuth(pool),
 		auth.RequireRole(pool, "admin"),
 	)
+
+	storage := photo.NewLocalStorage(cfg.StoragePath, cfg.StorageURLPrefix)
+	photoHandler := photo.NewHandler(pool, storage)
+	photoHandler.RegisterRoutes(mux, auth.RequireAuth(pool))
+
+	location.NewHandler().RegisterRoutes(mux, auth.RequireAuth(pool))
+
+	checkinHandler := checkin.NewHandler(pool, cfg.StorageURLPrefix)
+	checkinHandler.RegisterRoutes(mux, auth.RequireAuth(pool))
+
+	// Serve uploaded photos as static files
+	mux.Handle("GET /photos/", http.StripPrefix("/photos/",
+		http.FileServer(http.Dir(cfg.StoragePath))))
 
 	handler := middleware.Logging(middleware.SecurityHeaders(mux))
 
