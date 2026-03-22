@@ -88,10 +88,11 @@ func (h *Handler) submitRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	token := uuid.NewString()
+	pendingUserID := uuid.NewString()
 	_, err := h.db.Exec(ctx,
-		`INSERT INTO registration_requests (token, name, email, expires_at)
-		 VALUES ($1, $2, $3, NOW() + INTERVAL '24 hours')`,
-		token, name, email,
+		`INSERT INTO registration_requests (token, name, email, expires_at, pending_user_id)
+		 VALUES ($1, $2, $3, NOW() + INTERVAL '24 hours', $4)`,
+		token, name, email, pendingUserID,
 	)
 	if err != nil {
 		http.Error(w, "Server error", http.StatusInternalServerError)
@@ -158,13 +159,13 @@ func (h *Handler) SendApprovalEmail(ctx context.Context, requestID string) error
 // without a circular import on the auth.Handler.
 // It creates the user account, moves the pending credential, and sends an approval email.
 func SendApprovalEmail(ctx context.Context, db *pgxpool.Pool, mailer *mail.Mailer, baseURL, requestID string) error {
-	var name, email string
+	var name, email, pendingUserID string
 	var credJSON []byte
 	err := db.QueryRow(ctx,
-		`SELECT name, email, pending_credential FROM registration_requests
+		`SELECT name, email, pending_user_id::text, pending_credential FROM registration_requests
 		 WHERE id = $1 AND status = 'pending' AND pending_credential IS NOT NULL`,
 		requestID,
-	).Scan(&name, &email, &credJSON)
+	).Scan(&name, &email, &pendingUserID, &credJSON)
 	if err != nil {
 		return fmt.Errorf("registration not found or passkey not yet registered: %w", err)
 	}
@@ -174,8 +175,8 @@ func SendApprovalEmail(ctx context.Context, db *pgxpool.Pool, mailer *mail.Maile
 		return fmt.Errorf("corrupt credential data: %w", err)
 	}
 
-	// Create the user account.
-	userID := uuid.NewString()
+	// Create the user account using the same ID that was used as the WebAuthn user handle.
+	userID := pendingUserID
 	_, err = db.Exec(ctx,
 		`INSERT INTO users (id, username, display_name, role) VALUES ($1, $2, $3, 'passive')`,
 		userID, email, name,
@@ -234,20 +235,20 @@ func (h *Handler) beginRegisterPasskey(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 	ctx := r.Context()
 
-	var reqID, name, email string
+	var reqID, name, email, pendingUserID string
 	err := h.db.QueryRow(ctx,
-		`SELECT id, name, email FROM registration_requests
+		`SELECT id, name, email, pending_user_id::text FROM registration_requests
 		 WHERE passkey_token = $1 AND passkey_token_expires_at > NOW()
 		   AND status = 'pending' AND email_verified = TRUE`,
 		token,
-	).Scan(&reqID, &name, &email)
+	).Scan(&reqID, &name, &email, &pendingUserID)
 	if err != nil {
 		http.Error(w, "Invalid or expired link", http.StatusBadRequest)
 		return
 	}
 
-	// Create a temporary user for WebAuthn ceremony
-	waUser := &waUser{id: reqID, name: name, displayName: name, email: email}
+	// Use the stable pending_user_id so the WebAuthn user handle matches the eventual user account ID.
+	waUser := &waUser{id: pendingUserID, name: name, displayName: name, email: email}
 
 	options, sessionData, err := h.webAuthn.BeginRegistration(waUser)
 	if err != nil {
@@ -270,14 +271,14 @@ func (h *Handler) finishRegisterPasskey(w http.ResponseWriter, r *http.Request) 
 	token := r.URL.Query().Get("token")
 	ctx := r.Context()
 
-	var reqID, name, email string
+	var reqID, name, email, pendingUserID string
 	var sessionJSON []byte
 	err := h.db.QueryRow(ctx,
-		`SELECT id, name, email, webauthn_session FROM registration_requests
+		`SELECT id, name, email, pending_user_id::text, webauthn_session FROM registration_requests
 		 WHERE passkey_token = $1 AND passkey_token_expires_at > NOW()
 		   AND status = 'pending' AND email_verified = TRUE`,
 		token,
-	).Scan(&reqID, &name, &email, &sessionJSON)
+	).Scan(&reqID, &name, &email, &pendingUserID, &sessionJSON)
 	if err != nil {
 		http.Error(w, "Invalid or expired link", http.StatusBadRequest)
 		return
@@ -289,7 +290,7 @@ func (h *Handler) finishRegisterPasskey(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	waUser := &waUser{id: reqID, name: name, displayName: name, email: email}
+	waUser := &waUser{id: pendingUserID, name: name, displayName: name, email: email}
 	credential, err := h.webAuthn.FinishRegistration(waUser, sessionData, r)
 	if err != nil {
 		http.Error(w, "Passkey registration failed: "+err.Error(), http.StatusBadRequest)
