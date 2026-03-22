@@ -429,7 +429,11 @@ func (h *Handler) finishLogin(w http.ResponseWriter, r *http.Request) {
 		credential.Authenticator.SignCount, userID, credential.ID,
 	)
 
-	CreateSession(ctx, h.db, w, r, userID, h.isProd)
+	if err := CreateSession(ctx, h.db, w, r, userID, h.isProd); err != nil {
+		fmt.Printf("CreateSession error: %v\n", err)
+		http.Error(w, "Session error", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"redirect": "/"})
 }

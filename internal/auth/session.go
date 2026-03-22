@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"time"
 
@@ -21,10 +22,14 @@ type Session struct {
 
 func CreateSession(ctx context.Context, db *pgxpool.Pool, w http.ResponseWriter, r *http.Request, userID string, secure bool) error {
 	id := uuid.NewString()
-	_, err := db.Exec(ctx,
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		ip = r.RemoteAddr // already just an IP (no port)
+	}
+	_, err = db.Exec(ctx,
 		`INSERT INTO sessions (id, user_id, ip_address, user_agent, expires_at)
 		 VALUES ($1, $2, $3::inet, $4, NOW() + INTERVAL '30 days')`,
-		id, userID, r.RemoteAddr, r.UserAgent(),
+		id, userID, ip, r.UserAgent(),
 	)
 	if err != nil {
 		return err
