@@ -1,7 +1,9 @@
 package mail
 
 import (
+	"crypto/tls"
 	"fmt"
+	"net"
 	"net/smtp"
 	"strings"
 )
@@ -21,6 +23,37 @@ func New(host, port, user, pass, from string) *Mailer {
 func (m *Mailer) Send(to, subject, body string) error {
 	addr := m.host + ":" + m.port
 
+	// Dial manually instead of using smtp.SendMail, which passes the dial
+	// address as the TLS ServerName. Connecting to "localhost" while the
+	// server's cert is for another hostname ("mail.paftech.se") causes a
+	// cert verification failure. For localhost we skip cert verification
+	// (loopback traffic; TLS adds no security value here).
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return err
+	}
+	c, err := smtp.NewClient(conn, m.host)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+
+	if ok, _ := c.Extension("STARTTLS"); ok {
+		isLocal := m.host == "localhost" || m.host == "127.0.0.1"
+		if err := c.StartTLS(&tls.Config{
+			ServerName:         m.host,
+			InsecureSkipVerify: isLocal,
+		}); err != nil {
+			return err
+		}
+	}
+
+	if m.user != "" && m.pass != "" {
+		if err := c.Auth(smtp.PlainAuth("", m.user, m.pass, m.host)); err != nil {
+			return err
+		}
+	}
+
 	msg := strings.Join([]string{
 		"From: French 75 Tracker <" + m.from + ">",
 		"To: " + to,
@@ -31,13 +64,23 @@ func (m *Mailer) Send(to, subject, body string) error {
 		body,
 	}, "\r\n")
 
-	// Use auth only if credentials are provided (localhost Postfix needs none)
-	var auth smtp.Auth
-	if m.user != "" && m.pass != "" {
-		auth = smtp.PlainAuth("", m.user, m.pass, m.host)
+	if err := c.Mail(m.from); err != nil {
+		return err
 	}
-
-	return smtp.SendMail(addr, auth, m.from, []string{to}, []byte(msg))
+	if err := c.Rcpt(to); err != nil {
+		return err
+	}
+	w, err := c.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprint(w, msg); err != nil {
+		return err
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	return c.Quit()
 }
 
 func (m *Mailer) SendVerification(to, name, link string) error {
