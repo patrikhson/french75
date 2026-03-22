@@ -45,6 +45,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /auth/register/begin", h.beginRegisterPasskey)
 	mux.HandleFunc("POST /auth/register/finish", h.finishRegisterPasskey)
 
+	// Waiting for approval
+	mux.HandleFunc("GET /auth/pending", h.showPending)
+
 	// Login
 	mux.HandleFunc("GET /auth/login", h.showLogin)
 	mux.HandleFunc("POST /auth/login/begin", h.beginLogin)
@@ -328,6 +331,14 @@ type storedCredential struct {
 // Login
 // ---------------------------------------------------------------
 
+func (h *Handler) showPending(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprint(w, `<!DOCTYPE html><html><body>
+<h2>Request submitted</h2>
+<p>Your passkey is registered. You'll receive an email when an admin approves your account.</p>
+</body></html>`)
+}
+
 func (h *Handler) showLogin(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprint(w, loginHTML)
@@ -582,7 +593,7 @@ document.getElementById('registerBtn').addEventListener('click', async () => {
     }),
   });
   if (finishResp.ok) {
-    window.location.href = '/';
+    window.location.href = '/auth/pending';
   } else {
     alert(await finishResp.text());
   }
