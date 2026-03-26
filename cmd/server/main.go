@@ -21,6 +21,7 @@ import (
 	"github.com/patrikhson/french75/internal/location"
 	"github.com/patrikhson/french75/internal/mail"
 	"github.com/patrikhson/french75/internal/middleware"
+	"github.com/patrikhson/french75/internal/notification"
 	"github.com/patrikhson/french75/internal/photo"
 	"github.com/patrikhson/french75/internal/social"
 	"github.com/patrikhson/french75/internal/user"
@@ -54,7 +55,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("no passkey-registered pending request for %s: %v", email, err)
 		}
-		if err := auth.SendApprovalEmail(ctx, pool, mailer, cfg.AppBaseURL, reqID); err != nil {
+		if _, err := auth.SendApprovalEmail(ctx, pool, mailer, cfg.AppBaseURL, reqID); err != nil {
 			log.Fatalf("send approval email: %v", err)
 		}
 		log.Printf("approved %s and sent welcome email", email)
@@ -109,7 +110,7 @@ func main() {
 
 	authHandler.RegisterRoutes(mux)
 
-	drinkHandler := drink.NewHandler(pool)
+	drinkHandler := drink.NewHandler(pool, mailer, cfg.AppBaseURL)
 	drinkHandler.RegisterRoutes(mux,
 		auth.RequireAuth(pool),
 		auth.RequireRole(pool, "admin"),
@@ -121,14 +122,37 @@ func main() {
 
 	location.NewHandler(cfg.GooglePlacesKey).RegisterRoutes(mux, auth.RequireAuth(pool))
 
-	checkinHandler := checkin.NewHandler(pool, cfg.StorageURLPrefix)
+	checkinHandler := checkin.NewHandler(pool, cfg.StorageURLPrefix, mailer, cfg.AppBaseURL)
 	checkinHandler.RegisterRoutes(mux, auth.RequireAuth(pool))
 
 	feed.NewHandler(pool, cfg.StorageURLPrefix).RegisterRoutes(mux, auth.RequireAuth(pool))
-	social.NewHandler(pool).RegisterRoutes(mux, auth.RequireAuth(pool))
+	social.NewHandler(pool, mailer, cfg.AppBaseURL).RegisterRoutes(mux, auth.RequireAuth(pool))
 	user.NewHandler(pool, cfg.StorageURLPrefix).RegisterRoutes(mux, auth.RequireAuth(pool))
 
 	admin.NewHandler(pool, mailer, cfg.AppBaseURL).RegisterRoutes(mux, auth.RequireRole(pool, "admin"))
+
+	notifHandler := notification.NewHandler(pool, mailer, cfg.AppBaseURL)
+	notifHandler.RegisterRoutes(mux, auth.RequireAuth(pool))
+
+	// Digest goroutine: runs every hour, sends daily digest emails to admins.
+	notifSvc := notifHandler.Svc()
+	go func() {
+		t := time.NewTicker(1 * time.Hour)
+		defer t.Stop()
+		for range t.C {
+			ctx := context.Background()
+			hour := time.Now().UTC().Hour()
+			admins, err := notification.AdminsForDigest(ctx, pool, hour)
+			if err != nil {
+				log.Printf("digest: list admins: %v", err)
+				continue
+			}
+			counts := notification.FetchDigestCounts(ctx, pool)
+			for _, a := range admins {
+				notifSvc.SendDigest(ctx, a, counts)
+			}
+		}
+	}()
 
 	// Serve uploaded photos as static files
 	mux.Handle("GET /photos/", http.StripPrefix("/photos/",

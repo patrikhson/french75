@@ -6,15 +6,18 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/patrikhson/french75/internal/layout"
+	"github.com/patrikhson/french75/internal/mail"
 	"github.com/patrikhson/french75/internal/middleware"
+	"github.com/patrikhson/french75/internal/notification"
 )
 
 type Handler struct {
-	db *pgxpool.Pool
+	db      *pgxpool.Pool
+	notifSvc *notification.Service
 }
 
-func NewHandler(db *pgxpool.Pool) *Handler {
-	return &Handler{db: db}
+func NewHandler(db *pgxpool.Pool, mailer *mail.Mailer, baseURL string) *Handler {
+	return &Handler{db: db, notifSvc: notification.NewService(db, mailer, baseURL)}
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux, requireAuth, requireAdmin func(http.Handler) http.Handler) {
@@ -33,6 +36,8 @@ func (h *Handler) listDrinks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	role := middleware.GetUserRole(r)
+	userID := middleware.GetUserID(r)
+	unread := notification.UnreadCount(r.Context(), h.db, userID)
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprintf(w, `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -40,7 +45,7 @@ func (h *Handler) listDrinks(w http.ResponseWriter, r *http.Request) {
 <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
 </head><body>%s<main>
 <h2>Drinks</h2>
-<ul>`, layout.Nav(role))
+<ul>`, layout.Nav(role, unread))
 	for _, d := range drinks {
 		fmt.Fprintf(w, `<li><strong>%s</strong>`, d.Name)
 		if d.Description != "" {
@@ -76,6 +81,13 @@ func (h *Handler) submitRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.notifSvc.NotifyAdmins(r.Context(),
+		notification.TypeAdminNewDrinkRequest,
+		"New drink request",
+		fmt.Sprintf("%q has been requested.", name),
+		"/admin/drinks/requests",
+	)
+
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprint(w, `<!DOCTYPE html><html><body>
 <h2>Request submitted</h2>
@@ -88,10 +100,18 @@ func (h *Handler) approveRequest(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	adminID := middleware.GetUserID(r)
 
-	if err := ApproveRequest(r.Context(), h.db, id, adminID); err != nil {
+	requesterID, err := ApproveRequest(r.Context(), h.db, id, adminID)
+	if err != nil {
 		http.Error(w, "Could not approve: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	h.notifSvc.Notify(r.Context(), requesterID,
+		notification.TypeDrinkRequestApproved,
+		"Drink request approved",
+		"Your drink request has been approved and added to the list.",
+		"/drinks",
+	)
 
 	// HTMX or plain redirect
 	if r.Header.Get("HX-Request") != "" {
@@ -106,10 +126,22 @@ func (h *Handler) rejectRequest(w http.ResponseWriter, r *http.Request) {
 	adminID := middleware.GetUserID(r)
 	note := r.FormValue("note")
 
-	if err := RejectRequest(r.Context(), h.db, id, adminID, note); err != nil {
+	requesterID, err := RejectRequest(r.Context(), h.db, id, adminID, note)
+	if err != nil {
 		http.Error(w, "Could not reject: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	msg := "Your drink request was not approved."
+	if note != "" {
+		msg += " Note: " + note
+	}
+	h.notifSvc.Notify(r.Context(), requesterID,
+		notification.TypeDrinkRequestRejected,
+		"Drink request rejected",
+		msg,
+		"/drinks",
+	)
 
 	if r.Header.Get("HX-Request") != "" {
 		fmt.Fprint(w, "Rejected")

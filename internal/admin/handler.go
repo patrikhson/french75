@@ -6,18 +6,26 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/patrikhson/french75/internal/auth"
+	"github.com/patrikhson/french75/internal/layout"
 	"github.com/patrikhson/french75/internal/mail"
 	"github.com/patrikhson/french75/internal/middleware"
+	"github.com/patrikhson/french75/internal/notification"
 )
 
 type Handler struct {
-	db      *pgxpool.Pool
-	mailer  *mail.Mailer
-	baseURL string
+	db       *pgxpool.Pool
+	mailer   *mail.Mailer
+	baseURL  string
+	notifSvc *notification.Service
 }
 
 func NewHandler(db *pgxpool.Pool, mailer *mail.Mailer, baseURL string) *Handler {
-	return &Handler{db: db, mailer: mailer, baseURL: baseURL}
+	return &Handler{
+		db:       db,
+		mailer:   mailer,
+		baseURL:  baseURL,
+		notifSvc: notification.NewService(db, mailer, baseURL),
+	}
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux, requireAdmin func(http.Handler) http.Handler) {
@@ -49,24 +57,17 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux, requireAdmin func(http.Hand
 func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 	c := GetCounts(r.Context(), h.db)
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Admin — French 75 Tracker</title></head>
-<body>
-<h2>Admin Dashboard</h2>
-<p><a href="/">← Feed</a></p>
-<ul>
+	body := layout.AdminPage("Admin Dashboard", fmt.Sprintf(`<ul>
   <li><a href="/admin/registrations">Registrations</a> — %d pending</li>
   <li><a href="/admin/checkins/pending">Pending check-ins</a> — %d pending</li>
   <li><a href="/admin/drinks/requests">Drink requests</a> — %d pending</li>
   <li><a href="/admin/spam">Spam / flagged</a> — %d unreviewed flags</li>
   <li><a href="/admin/users">Users</a></li>
-</ul>
-</body></html>`,
+</ul>`,
 		c.PendingRegistrations, c.PendingCheckins,
 		c.PendingDrinkRequests, c.UnreviewedFlags,
-	)
+	)) + "</body></html>"
+	fmt.Fprint(w, body)
 }
 
 // ---------------------------------------------------------------
@@ -80,7 +81,7 @@ func (h *Handler) listRegistrations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, adminPage("Pending Registrations", `<p><a href="/admin">← Admin</a></p><table border="1" cellpadding="6"><tr><th>Name</th><th>Email</th><th>Requested</th><th></th></tr>`))
+	fmt.Fprint(w, layout.AdminPage("Pending Registrations", `<table border="1" cellpadding="6"><tr><th>Name</th><th>Email</th><th>Requested</th><th></th></tr>`))
 	for _, rq := range reqs {
 		fmt.Fprintf(w, `<tr>
   <td>%s</td><td>%s</td><td>%s</td>
@@ -102,9 +103,19 @@ func (h *Handler) listRegistrations(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) approveRegistration(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := auth.SendApprovalEmail(r.Context(), h.db, h.mailer, h.baseURL, id); err != nil {
+	userID, err := auth.SendApprovalEmail(r.Context(), h.db, h.mailer, h.baseURL, id)
+	if err != nil {
 		http.Error(w, "Could not approve: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+	// In-app notification (email already sent by SendApprovalEmail).
+	if userID != "" {
+		h.notifSvc.Notify(r.Context(), userID,
+			notification.TypeAccountApproved,
+			"Account approved",
+			"Your account has been approved. Welcome to French 75 Tracker!",
+			"/auth/login",
+		)
 	}
 	http.Redirect(w, r, "/admin/registrations", http.StatusSeeOther)
 }
@@ -129,7 +140,7 @@ func (h *Handler) listPendingCheckins(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, adminPage("Pending Check-ins", `<p><a href="/admin">← Admin</a></p><table border="1" cellpadding="6"><tr><th>User</th><th>Role</th><th>Drink</th><th>Date</th><th>Location</th><th>EXIF date</th><th>Device GPS</th><th>Photo GPS</th><th>Review</th><th></th></tr>`))
+	fmt.Fprint(w, layout.AdminPage("Pending Check-ins", `<table border="1" cellpadding="6"><tr><th>User</th><th>Role</th><th>Drink</th><th>Date</th><th>Location</th><th>EXIF date</th><th>Device GPS</th><th>Photo GPS</th><th>Review</th><th></th></tr>`))
 	for _, ci := range items {
 		exif := "—"
 		if ci.ExifPassed != nil {
@@ -186,18 +197,34 @@ func (h *Handler) listPendingCheckins(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) approveCheckin(w http.ResponseWriter, r *http.Request) {
-	if err := ApproveCheckin(r.Context(), h.db, r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+	ownerID, err := ApproveCheckin(r.Context(), h.db, id)
+	if err != nil {
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
+	h.notifSvc.Notify(r.Context(), ownerID,
+		notification.TypeCheckinApproved,
+		"Check-in approved",
+		"Your check-in has been approved and is now public.",
+		"/checkins/"+id,
+	)
 	http.Redirect(w, r, "/admin/checkins/pending", http.StatusSeeOther)
 }
 
 func (h *Handler) rejectCheckin(w http.ResponseWriter, r *http.Request) {
-	if err := RejectCheckin(r.Context(), h.db, r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+	ownerID, err := RejectCheckin(r.Context(), h.db, id)
+	if err != nil {
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
+	h.notifSvc.Notify(r.Context(), ownerID,
+		notification.TypeCheckinRejected,
+		"Check-in rejected",
+		"Your check-in was not approved.",
+		"/checkins/"+id,
+	)
 	http.Redirect(w, r, "/admin/checkins/pending", http.StatusSeeOther)
 }
 
@@ -221,7 +248,7 @@ func (h *Handler) listDrinkRequests(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, adminPage("Drink Requests", `<p><a href="/admin">← Admin</a></p><table border="1" cellpadding="6"><tr><th>User</th><th>Drink</th><th>Description</th><th>Reason</th><th>Date</th><th></th></tr>`))
+	fmt.Fprint(w, layout.AdminPage("Drink Requests", `<table border="1" cellpadding="6"><tr><th>User</th><th>Drink</th><th>Description</th><th>Reason</th><th>Date</th><th></th></tr>`))
 
 	adminID := middleware.GetUserID(r)
 	empty := true
@@ -261,7 +288,7 @@ func (h *Handler) listSpam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, adminPage("Flagged / Spam", `<p><a href="/admin">← Admin</a></p><table border="1" cellpadding="6"><tr><th>User</th><th>Drink</th><th>Flags</th><th>Status</th><th>Review</th><th></th></tr>`))
+	fmt.Fprint(w, layout.AdminPage("Flagged / Spam", `<table border="1" cellpadding="6"><tr><th>User</th><th>Drink</th><th>Flags</th><th>Status</th><th>Review</th><th></th></tr>`))
 	for _, f := range items {
 		fmt.Fprintf(w, `<tr>
   <td>%s</td><td>%s</td><td>%d</td><td>%s</td><td>%s</td>
@@ -298,7 +325,7 @@ func (h *Handler) listUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, adminPage("Users", `<p><a href="/admin">← Admin</a></p><table border="1" cellpadding="6"><tr><th>Username</th><th>Display name</th><th>Role</th><th>Check-ins</th><th>Banned</th><th>Joined</th><th></th></tr>`))
+	fmt.Fprint(w, layout.AdminPage("Users", `<table border="1" cellpadding="6"><tr><th>Username</th><th>Display name</th><th>Role</th><th>Check-ins</th><th>Banned</th><th>Joined</th><th></th></tr>`))
 	for _, u := range users {
 		banned := "No"
 		if u.IsBanned {
@@ -348,16 +375,3 @@ func (h *Handler) setRole(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/admin/users", http.StatusSeeOther)
 }
 
-// ---------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------
-
-func adminPage(title, content string) string {
-	return fmt.Sprintf(`<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>%s — Admin</title></head>
-<body>
-<h2>%s</h2>
-%s`, title, title, content)
-}

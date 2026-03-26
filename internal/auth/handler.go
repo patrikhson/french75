@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/patrikhson/french75/internal/mail"
+	"github.com/patrikhson/french75/internal/notification"
 )
 
 type Handler struct {
@@ -20,6 +21,7 @@ type Handler struct {
 	baseURL    string
 	isProd     bool
 	sessionKey string
+	notifSvc   *notification.Service
 }
 
 func NewHandler(db *pgxpool.Pool, wa *webauthn.WebAuthn, mailer *mail.Mailer, baseURL, sessionKey string, isProd bool) *Handler {
@@ -30,6 +32,7 @@ func NewHandler(db *pgxpool.Pool, wa *webauthn.WebAuthn, mailer *mail.Mailer, ba
 		baseURL:    baseURL,
 		isProd:     isProd,
 		sessionKey: sessionKey,
+		notifSvc:   notification.NewService(db, mailer, baseURL),
 	}
 }
 
@@ -151,14 +154,15 @@ func (h *Handler) verifyEmail(w http.ResponseWriter, r *http.Request) {
 // (admin handler calls this service method)
 // ---------------------------------------------------------------
 
-func (h *Handler) SendApprovalEmail(ctx context.Context, requestID string) error {
+func (h *Handler) SendApprovalEmail(ctx context.Context, requestID string) (string, error) {
 	return SendApprovalEmail(ctx, h.db, h.mailer, h.baseURL, requestID)
 }
 
 // SendApprovalEmail is a package-level function so the admin handler can call it
 // without a circular import on the auth.Handler.
-// It creates the user account, moves the pending credential, and sends an approval email.
-func SendApprovalEmail(ctx context.Context, db *pgxpool.Pool, mailer *mail.Mailer, baseURL, requestID string) error {
+// It creates the user account, moves the pending credential, sends an approval email,
+// and returns the new user's ID.
+func SendApprovalEmail(ctx context.Context, db *pgxpool.Pool, mailer *mail.Mailer, baseURL, requestID string) (string, error) {
 	var name, email, pendingUserID string
 	var credJSON []byte
 	err := db.QueryRow(ctx,
@@ -167,12 +171,12 @@ func SendApprovalEmail(ctx context.Context, db *pgxpool.Pool, mailer *mail.Maile
 		requestID,
 	).Scan(&name, &email, &pendingUserID, &credJSON)
 	if err != nil {
-		return fmt.Errorf("registration not found or passkey not yet registered: %w", err)
+		return "", fmt.Errorf("registration not found or passkey not yet registered: %w", err)
 	}
 
 	var cred storedCredential
 	if err := json.Unmarshal(credJSON, &cred); err != nil {
-		return fmt.Errorf("corrupt credential data: %w", err)
+		return "", fmt.Errorf("corrupt credential data: %w", err)
 	}
 
 	// Create the user account using the same ID that was used as the WebAuthn user handle.
@@ -182,7 +186,7 @@ func SendApprovalEmail(ctx context.Context, db *pgxpool.Pool, mailer *mail.Maile
 		userID, email, name,
 	)
 	if err != nil {
-		return fmt.Errorf("create user: %w", err)
+		return "", fmt.Errorf("create user: %w", err)
 	}
 
 	// Move the credential to the user.
@@ -193,7 +197,7 @@ func SendApprovalEmail(ctx context.Context, db *pgxpool.Pool, mailer *mail.Maile
 		userID, cred.ID, cred.PublicKey, cred.AAGUID, cred.SignCount, cred.BackupEligible, cred.BackupState,
 	)
 	if err != nil {
-		return fmt.Errorf("store credential: %w", err)
+		return "", fmt.Errorf("store credential: %w", err)
 	}
 
 	// Mark request completed.
@@ -202,7 +206,7 @@ func SendApprovalEmail(ctx context.Context, db *pgxpool.Pool, mailer *mail.Maile
 		userID, requestID,
 	)
 
-	return mailer.SendApproved(email, name, baseURL+"/auth/login")
+	return userID, mailer.SendApproved(email, name, baseURL+"/auth/login")
 }
 
 // ---------------------------------------------------------------
@@ -314,6 +318,13 @@ func (h *Handler) finishRegisterPasskey(w http.ResponseWriter, r *http.Request) 
 		 SET pending_credential = $1, passkey_registered_at = NOW()
 		 WHERE id = $2`,
 		storedJSON, reqID,
+	)
+
+	h.notifSvc.NotifyAdmins(ctx,
+		notification.TypeAdminNewRegistration,
+		"New registration request",
+		fmt.Sprintf("%s (%s) has registered a passkey and is waiting for approval.", name, email),
+		"/admin/registrations",
 	)
 
 	w.Header().Set("Content-Type", "text/html")

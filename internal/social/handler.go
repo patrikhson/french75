@@ -5,15 +5,18 @@ import (
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/patrikhson/french75/internal/mail"
 	"github.com/patrikhson/french75/internal/middleware"
+	"github.com/patrikhson/french75/internal/notification"
 )
 
 type Handler struct {
-	db *pgxpool.Pool
+	db       *pgxpool.Pool
+	notifSvc *notification.Service
 }
 
-func NewHandler(db *pgxpool.Pool) *Handler {
-	return &Handler{db: db}
+func NewHandler(db *pgxpool.Pool, mailer *mail.Mailer, baseURL string) *Handler {
+	return &Handler{db: db, notifSvc: notification.NewService(db, mailer, baseURL)}
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux, requireAuth func(http.Handler) http.Handler) {
@@ -40,6 +43,29 @@ func (h *Handler) react(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
+	}
+
+	// Notify the check-in owner when a new reaction is added (not on toggle-off).
+	if active {
+		var ownerID, reactorName string
+		h.db.QueryRow(r.Context(),
+			`SELECT c.user_id, COALESCE(u.display_name, u.username)
+			 FROM check_ins c, users u
+			 WHERE c.id = $1 AND u.id = $2`,
+			checkinID, userID,
+		).Scan(&ownerID, &reactorName)
+		if ownerID != "" && ownerID != userID {
+			label := "liked"
+			if reactionType == "helpful" {
+				label = "marked helpful"
+			}
+			h.notifSvc.Notify(r.Context(), ownerID,
+				notification.TypeCheckinReaction,
+				"Someone reacted to your check-in",
+				fmt.Sprintf("%s %s your check-in.", reactorName, label),
+				"/checkins/"+checkinID,
+			)
+		}
 	}
 
 	// Return HTMX fragment: just the updated span that the button targets
@@ -73,6 +99,21 @@ func (h *Handler) follow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Notify the followed user (only on follow, not unfollow).
+	if nowFollowing {
+		var followerName string
+		h.db.QueryRow(r.Context(),
+			`SELECT COALESCE(display_name, username) FROM users WHERE id = $1`,
+			followerID,
+		).Scan(&followerName)
+		h.notifSvc.Notify(r.Context(), followingID,
+			notification.TypeNewFollower,
+			"New follower",
+			fmt.Sprintf("%s is now following you.", followerName),
+			"/users/"+followerID,
+		)
+	}
+
 	// Return HTMX fragment: updated follow button
 	w.Header().Set("Content-Type", "text/html")
 	if nowFollowing {
@@ -101,6 +142,13 @@ func (h *Handler) flag(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Already flagged or not found", http.StatusBadRequest)
 		return
 	}
+
+	h.notifSvc.NotifyAdmins(r.Context(),
+		notification.TypeAdminSpamFlag,
+		"Check-in flagged",
+		"A check-in has been flagged as spam.",
+		"/admin/spam",
+	)
 
 	if r.Header.Get("HX-Request") != "" {
 		w.Header().Set("Content-Type", "text/html")

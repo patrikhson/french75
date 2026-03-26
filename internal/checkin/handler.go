@@ -9,16 +9,23 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/patrikhson/french75/internal/layout"
+	"github.com/patrikhson/french75/internal/mail"
 	"github.com/patrikhson/french75/internal/middleware"
+	"github.com/patrikhson/french75/internal/notification"
 )
 
 type Handler struct {
-	db      *pgxpool.Pool
+	db             *pgxpool.Pool
 	photoURLPrefix string
+	notifSvc       *notification.Service
 }
 
-func NewHandler(db *pgxpool.Pool, photoURLPrefix string) *Handler {
-	return &Handler{db: db, photoURLPrefix: photoURLPrefix}
+func NewHandler(db *pgxpool.Pool, photoURLPrefix string, mailer *mail.Mailer, baseURL string) *Handler {
+	return &Handler{
+		db:             db,
+		photoURLPrefix: photoURLPrefix,
+		notifSvc:       notification.NewService(db, mailer, baseURL),
+	}
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux, requireAuth func(http.Handler) http.Handler) {
@@ -48,6 +55,8 @@ func (h *Handler) showNew(w http.ResponseWriter, r *http.Request) {
 	}
 
 	role := middleware.GetUserRole(r)
+	userID := middleware.GetUserID(r)
+	unread := notification.UnreadCount(r.Context(), h.db, userID)
 	today := time.Now().UTC().Format("2006-01-02")
 
 	w.Header().Set("Content-Type", "text/html")
@@ -59,7 +68,7 @@ func (h *Handler) showNew(w http.ResponseWriter, r *http.Request) {
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 </head>
 <body>`)
-	fmt.Fprint(w, layout.Nav(role))
+	fmt.Fprint(w, layout.Nav(role, unread))
 	fmt.Fprint(w, `<main>
 <h2>New Check-in</h2>
 <form id="checkinForm" method="POST" action="/checkins">
@@ -91,7 +100,16 @@ func (h *Handler) showNew(w http.ResponseWriter, r *http.Request) {
   <input type="hidden" name="location_osm_type" id="locationOsmType">
   <div id="locationDisplay"></div>
   <div id="locationMap" style="height:200px;margin-top:8px;display:none;border-radius:4px;"></div>
-  </label><br><br>
+  </label><br>
+  <details style="margin-bottom:8px;">
+    <summary style="cursor:pointer;color:#555;font-size:0.9em;">Can't find it? Enter location manually</summary>
+    <div style="margin-top:8px;padding:8px;background:#f9f9f9;border-radius:4px;">
+      <label>Venue name<br>
+      <input type="text" id="manualName" placeholder="e.g. Operabaren"></label><br><br>
+      <button type="button" id="useGpsBtn">Use my current GPS position</button>
+      <span id="gpsStatus" style="margin-left:8px;font-size:0.85em;color:#555;"></span>
+    </div>
+  </details>
 
   <input type="hidden" name="submission_lat" id="submissionLat">
   <input type="hidden" name="submission_lng" id="submissionLng">
@@ -106,15 +124,6 @@ func (h *Handler) showNew(w http.ResponseWriter, r *http.Request) {
 </form>
 
 <script>
-// GPS capture
-if (navigator.geolocation) {
-  navigator.geolocation.getCurrentPosition(pos => {
-    document.getElementById('submissionLat').value = pos.coords.latitude;
-    document.getElementById('submissionLng').value = pos.coords.longitude;
-    document.getElementById('submissionAccuracy').value = pos.coords.accuracy;
-  });
-}
-
 // Location search
 let locationTimer;
 document.getElementById('locationSearch').addEventListener('input', e => {
@@ -130,25 +139,66 @@ async function searchLocation(q) {
   const results = await resp.json();
   const div = document.getElementById('locationResults');
   div.innerHTML = '';
-  (results || []).forEach(r => {
+  if (!results || results.length === 0) {
+    div.textContent = 'No results — try the manual entry below.';
+    return;
+  }
+  results.forEach(r => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.textContent = r.display_name;
     btn.style.display = 'block';
     btn.addEventListener('click', () => {
-      document.getElementById('locationName').value = r.display_name;
-      document.getElementById('locationLat').value = r.lat;
-      document.getElementById('locationLng').value = r.lon;
-      document.getElementById('locationOsmId').value = r.osm_id || '';
-      document.getElementById('locationOsmType').value = r.osm_type || '';
-      document.getElementById('locationDisplay').textContent = '✓ ' + r.display_name;
+      setLocation(r.display_name, parseFloat(r.lat), parseFloat(r.lon), r.osm_id||'', r.osm_type||'');
       document.getElementById('locationSearch').value = '';
       div.innerHTML = '';
-      showLocationMap(parseFloat(r.lat), parseFloat(r.lon), r.display_name);
     });
     div.appendChild(btn);
   });
 }
+
+function setLocation(name, lat, lng, osmId, osmType) {
+  document.getElementById('locationName').value = name;
+  document.getElementById('locationLat').value = lat;
+  document.getElementById('locationLng').value = lng;
+  document.getElementById('locationOsmId').value = osmId;
+  document.getElementById('locationOsmType').value = osmType;
+  document.getElementById('locationDisplay').textContent = '✓ ' + name;
+  showLocationMap(lat, lng, name);
+}
+
+// Manual GPS entry
+let _gpsPosition = null;
+if (navigator.geolocation) {
+  navigator.geolocation.getCurrentPosition(pos => {
+    _gpsPosition = pos;
+    document.getElementById('submissionLat').value = pos.coords.latitude;
+    document.getElementById('submissionLng').value = pos.coords.longitude;
+    document.getElementById('submissionAccuracy').value = pos.coords.accuracy;
+  });
+}
+
+document.getElementById('useGpsBtn').addEventListener('click', () => {
+  const name = document.getElementById('manualName').value.trim();
+  if (!name) { alert('Please enter a venue name first.'); return; }
+  const status = document.getElementById('gpsStatus');
+  if (_gpsPosition) {
+    setLocation(name, _gpsPosition.coords.latitude, _gpsPosition.coords.longitude, '', '');
+    status.textContent = '✓ Location set';
+  } else if (navigator.geolocation) {
+    status.textContent = 'Getting GPS...';
+    navigator.geolocation.getCurrentPosition(pos => {
+      _gpsPosition = pos;
+      document.getElementById('submissionLat').value = pos.coords.latitude;
+      document.getElementById('submissionLng').value = pos.coords.longitude;
+      document.getElementById('submissionAccuracy').value = pos.coords.accuracy;
+      setLocation(name, pos.coords.latitude, pos.coords.longitude, '', '');
+      status.textContent = '✓ Location set';
+    }, () => { status.textContent = 'GPS unavailable.'; });
+  } else {
+    status.textContent = 'GPS not available on this device.';
+  }
+});
 
 // Location mini-map
 let _map = null, _marker = null;
@@ -256,6 +306,18 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Notify admins if the check-in landed in pending status.
+	var status string
+	h.db.QueryRow(r.Context(), `SELECT status::text FROM check_ins WHERE id=$1`, id).Scan(&status)
+	if status == "pending" {
+		h.notifSvc.NotifyAdmins(r.Context(),
+			notification.TypeAdminNewCheckin,
+			"New check-in pending",
+			"A new check-in has been submitted and requires review.",
+			"/admin/checkins/pending",
+		)
+	}
+
 	http.Redirect(w, r, "/checkins/"+id, http.StatusSeeOther)
 }
 
@@ -284,6 +346,7 @@ func (h *Handler) show(w http.ResponseWriter, r *http.Request) {
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 </head>
 <body>%s<main>
+<p><a href="/">← Feed</a></p>
 <h2>%s</h2>
 <p><strong>Score:</strong> %d/100</p>
 <p><strong>Date:</strong> %s</p>
@@ -291,7 +354,7 @@ func (h *Handler) show(w http.ResponseWriter, r *http.Request) {
 <p><strong>Status:</strong> %s</p>
 <blockquote>%s</blockquote>
 `,
-		ci.DrinkName, layout.Nav(userRole), ci.DrinkName,
+		ci.DrinkName, layout.Nav(userRole, notification.UnreadCount(r.Context(), h.db, userID)), ci.DrinkName,
 		ci.Score,
 		ci.DrinkDate.Format("2 January 2006"),
 		ci.LocationName,
@@ -361,7 +424,7 @@ func (h *Handler) showEdit(w http.ResponseWriter, r *http.Request) {
   <a href="/checkins/%s">Cancel</a>
 </form>
 </main></body></html>`,
-		layout.Nav(userRole),
+		layout.Nav(userRole, notification.UnreadCount(r.Context(), h.db, userID)),
 		ci.ID, ci.Score, ci.Score, ci.Review, ci.ID)
 }
 

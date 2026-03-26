@@ -88,10 +88,11 @@ func ListPendingRequests(ctx context.Context, db *pgxpool.Pool) ([]Request, erro
 	return reqs, nil
 }
 
-func ApproveRequest(ctx context.Context, db *pgxpool.Pool, requestID, adminID string) error {
+// ApproveRequest approves a drink request, creates the drink, and returns the requester's user ID.
+func ApproveRequest(ctx context.Context, db *pgxpool.Pool, requestID, adminID string) (requesterID string, err error) {
 	tx, err := db.Begin(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer tx.Rollback(ctx)
 
@@ -99,11 +100,11 @@ func ApproveRequest(ctx context.Context, db *pgxpool.Pool, requestID, adminID st
 	err = tx.QueryRow(ctx,
 		`UPDATE drink_requests SET status='approved', reviewed_by=$2, reviewed_at=NOW()
 		 WHERE id=$1 AND status='pending'
-		 RETURNING name, COALESCE(description,'')`,
+		 RETURNING name, COALESCE(description,''), requested_by`,
 		requestID, adminID,
-	).Scan(&name, &description)
+	).Scan(&name, &description, &requesterID)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	var drinkID string
@@ -112,7 +113,7 @@ func ApproveRequest(ctx context.Context, db *pgxpool.Pool, requestID, adminID st
 		name, description, adminID,
 	).Scan(&drinkID)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	_, err = tx.Exec(ctx,
@@ -120,17 +121,19 @@ func ApproveRequest(ctx context.Context, db *pgxpool.Pool, requestID, adminID st
 		drinkID, requestID,
 	)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	return tx.Commit(ctx)
+	return requesterID, tx.Commit(ctx)
 }
 
-func RejectRequest(ctx context.Context, db *pgxpool.Pool, requestID, adminID, note string) error {
-	_, err := db.Exec(ctx,
+// RejectRequest rejects a drink request and returns the requester's user ID.
+func RejectRequest(ctx context.Context, db *pgxpool.Pool, requestID, adminID, note string) (requesterID string, err error) {
+	err = db.QueryRow(ctx,
 		`UPDATE drink_requests SET status='rejected', reviewed_by=$2, reviewed_at=NOW(), review_note=$3
-		 WHERE id=$1 AND status='pending'`,
+		 WHERE id=$1 AND status='pending'
+		 RETURNING requested_by`,
 		requestID, adminID, note,
-	)
-	return err
+	).Scan(&requesterID)
+	return requesterID, err
 }

@@ -138,18 +138,24 @@ func haversineMeters(lat1, lng1, lat2, lng2 float64) float64 {
 	return R * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
 }
 
-func ApproveCheckin(ctx context.Context, db *pgxpool.Pool, checkinID string) error {
-	_, err := db.Exec(ctx,
-		`UPDATE check_ins SET status='public'::checkin_status WHERE id=$1 AND status='pending'`,
-		checkinID)
-	return err
+// ApproveCheckin sets a pending check-in to public. Returns the check-in owner's user ID.
+func ApproveCheckin(ctx context.Context, db *pgxpool.Pool, checkinID string) (ownerID string, err error) {
+	err = db.QueryRow(ctx,
+		`UPDATE check_ins SET status='public'::checkin_status
+		 WHERE id=$1 AND status='pending'
+		 RETURNING user_id`,
+		checkinID).Scan(&ownerID)
+	return ownerID, err
 }
 
-func RejectCheckin(ctx context.Context, db *pgxpool.Pool, checkinID string) error {
-	_, err := db.Exec(ctx,
-		`UPDATE check_ins SET status='spam'::checkin_status WHERE id=$1 AND status='pending'`,
-		checkinID)
-	return err
+// RejectCheckin sets a pending check-in to spam. Returns the check-in owner's user ID.
+func RejectCheckin(ctx context.Context, db *pgxpool.Pool, checkinID string) (ownerID string, err error) {
+	err = db.QueryRow(ctx,
+		`UPDATE check_ins SET status='spam'::checkin_status
+		 WHERE id=$1 AND status='pending'
+		 RETURNING user_id`,
+		checkinID).Scan(&ownerID)
+	return ownerID, err
 }
 
 // Spam flags

@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/patrikhson/french75/internal/layout"
 	"github.com/patrikhson/french75/internal/middleware"
+	"github.com/patrikhson/french75/internal/notification"
 )
 
 
@@ -56,7 +57,7 @@ func (h *Handler) index(w http.ResponseWriter, r *http.Request) {
 <title>French 75 Tracker</title>
 <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
 </head>
-<body>%s<main id="feed">`, layout.Nav(middleware.GetUserRole(r)))
+<body>%s<main id="feed">`, layout.Nav(middleware.GetUserRole(r), notification.UnreadCount(r.Context(), h.db, middleware.GetUserID(r))))
 	}
 
 	for _, it := range items {
@@ -98,24 +99,16 @@ func (h *Handler) following(w http.ResponseWriter, r *http.Request) {
 	isHTMX := r.Header.Get("HX-Request") != ""
 
 	if !isHTMX {
+		role := middleware.GetUserRole(r)
+		unread := notification.UnreadCount(r.Context(), h.db, userID)
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, `<!DOCTYPE html>
+		fmt.Fprintf(w, `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Following — French 75 Tracker</title>
 <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
 </head>
-<body>
-<header>
-  <h1>Following</h1>
-  <nav>
-    <a href="/">All</a> |
-    <a href="/checkins/new">+ Check-in</a> |
-    <a href="/drinks">Drinks</a> |
-    <a href="/auth/logout" hx-post="/auth/logout" hx-push-url="true">Log out</a>
-  </nav>
-</header>
-<main id="feed">`)
+<body>%s<main id="feed">`, layout.Nav(role, unread))
 	}
 
 	if len(items) == 0 && !isHTMX {

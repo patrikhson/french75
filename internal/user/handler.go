@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/patrikhson/french75/internal/layout"
 	"github.com/patrikhson/french75/internal/middleware"
+	"github.com/patrikhson/french75/internal/notification"
 	"github.com/patrikhson/french75/internal/social"
 )
 
@@ -100,7 +101,7 @@ func (h *Handler) profile(w http.ResponseWriter, r *http.Request) {
 <body>%s<main>
 <h2>%s</h2>
 <p>@%s · %d check-ins · %d followers · %d following</p>`,
-		p.DisplayName, layout.Nav(middleware.GetUserRole(r)), p.DisplayName, p.Username,
+		p.DisplayName, layout.Nav(middleware.GetUserRole(r), notification.UnreadCount(r.Context(), h.db, currentUserID)), p.DisplayName, p.Username,
 		p.CheckinCount, followers, following,
 	)
 
