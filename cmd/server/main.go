@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -26,6 +27,29 @@ import (
 	"github.com/patrikhson/french75/internal/social"
 	"github.com/patrikhson/french75/internal/user"
 )
+
+// mimeHandler ensures well-known static asset types are served with the
+// correct Content-Type so that browsers with strict MIME checking accept them.
+func mimeHandler(next http.Handler) http.Handler {
+	mimeTypes := map[string]string{
+		".css":  "text/css; charset=utf-8",
+		".js":   "application/javascript; charset=utf-8",
+		".svg":  "image/svg+xml",
+		".ico":  "image/x-icon",
+		".png":  "image/png",
+		".jpg":  "image/jpeg",
+		".jpeg": "image/jpeg",
+		".woff": "font/woff",
+		".woff2": "font/woff2",
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ext := strings.ToLower(r.URL.Path[strings.LastIndex(r.URL.Path, "."):])
+		if ct, ok := mimeTypes[ext]; ok {
+			w.Header().Set("Content-Type", ct)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 func main() {
 	// Load .env in development (ignored if file doesn't exist in production)
@@ -158,9 +182,9 @@ func main() {
 	mux.Handle("GET /photos/", http.StripPrefix("/photos/",
 		http.FileServer(http.Dir(cfg.StoragePath))))
 
-	// Serve static assets (CSS, JS, icons)
+	// Serve static assets (CSS, JS, icons) with explicit MIME types.
 	mux.Handle("GET /static/", http.StripPrefix("/static/",
-		http.FileServer(http.Dir("static"))))
+		mimeHandler(http.FileServer(http.Dir("static")))))
 
 	handler := middleware.Logging(middleware.SecurityHeaders(mux))
 
