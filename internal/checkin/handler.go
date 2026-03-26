@@ -3,6 +3,7 @@ package checkin
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -334,17 +335,17 @@ func (h *Handler) show(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprint(w, layout.PageStart(ci.DrinkName+" Check-in", userRole, notification.UnreadCount(r.Context(), h.db, userID), layout.LeafletCSS))
 	fmt.Fprintf(w, `<p><a href="/">← Feed</a></p>
-<h2>%s</h2>
+<h2><a href="/drinks/%s">%s</a></h2>
 <p><strong>Score:</strong> %d/100</p>
 <p><strong>Date:</strong> %s</p>
-<p><strong>Location:</strong> %s</p>
+<p><strong>Location:</strong> <a href="/locations?name=%s">%s</a></p>
 <p><strong>Status:</strong> %s</p>
 <blockquote>%s</blockquote>
 `,
-		ci.DrinkName,
+		ci.DrinkID, ci.DrinkName,
 		ci.Score,
 		ci.DrinkDate.Format("2 January 2006"),
-		ci.LocationName,
+		url.QueryEscape(ci.LocationName), ci.LocationName,
 		ci.Status,
 		ci.Review,
 	)

@@ -13,6 +13,7 @@ type Item struct {
 	ID           string
 	UserID       string
 	UserName     string
+	DrinkID      string
 	DrinkName    string
 	Score        int
 	Review       string
@@ -28,7 +29,7 @@ type Item struct {
 func ListFollowing(ctx context.Context, db *pgxpool.Pool, currentUserID string, before time.Time) ([]Item, error) {
 	rows, err := db.Query(ctx,
 		`SELECT c.id, c.user_id, COALESCE(u.display_name, u.username),
-		        d.name, c.score, LEFT(c.review, 280),
+		        d.id, d.name, c.score, LEFT(c.review, 280),
 		        c.drink_date, c.location_name,
 		        COALESCE(p.thumbnail_path, ''),
 		        c.like_count, c.helpful_count, c.submitted_at
@@ -55,7 +56,7 @@ func ListFollowing(ctx context.Context, db *pgxpool.Pool, currentUserID string, 
 		var it Item
 		if err := rows.Scan(
 			&it.ID, &it.UserID, &it.UserName,
-			&it.DrinkName, &it.Score, &it.Review,
+			&it.DrinkID, &it.DrinkName, &it.Score, &it.Review,
 			&it.DrinkDate, &it.LocationName,
 			&it.Thumbnail,
 			&it.LikeCount, &it.HelpfulCount, &it.SubmittedAt,
@@ -71,7 +72,7 @@ func ListFollowing(ctx context.Context, db *pgxpool.Pool, currentUserID string, 
 func List(ctx context.Context, db *pgxpool.Pool, before time.Time) ([]Item, error) {
 	rows, err := db.Query(ctx,
 		`SELECT c.id, c.user_id, COALESCE(u.display_name, u.username),
-		        d.name, c.score, LEFT(c.review, 280),
+		        d.id, d.name, c.score, LEFT(c.review, 280),
 		        c.drink_date, c.location_name,
 		        COALESCE(p.thumbnail_path, ''),
 		        c.like_count, c.helpful_count, c.submitted_at
@@ -97,7 +98,7 @@ func List(ctx context.Context, db *pgxpool.Pool, before time.Time) ([]Item, erro
 		var it Item
 		if err := rows.Scan(
 			&it.ID, &it.UserID, &it.UserName,
-			&it.DrinkName, &it.Score, &it.Review,
+			&it.DrinkID, &it.DrinkName, &it.Score, &it.Review,
 			&it.DrinkDate, &it.LocationName,
 			&it.Thumbnail,
 			&it.LikeCount, &it.HelpfulCount, &it.SubmittedAt,

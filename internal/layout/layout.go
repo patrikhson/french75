@@ -74,6 +74,8 @@ func Nav(role string, unread int) string {
       <a href="/feed/following">Following</a>
       <span class="nav-sep">·</span>
       <a href="/drinks">Drinks</a>
+      <span class="nav-sep">·</span>
+      <a href="/locations">Venues</a>
       %s
       <span class="nav-sep">·</span>
       %s
