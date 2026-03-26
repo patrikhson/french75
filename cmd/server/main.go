@@ -4,9 +4,9 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"mime"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -29,13 +29,6 @@ import (
 )
 
 func main() {
-	// Register MIME types explicitly so http.FileServer serves .css/.js with
-	// the correct Content-Type on hosts where /etc/mime.types is incomplete.
-	mime.AddExtensionType(".css", "text/css; charset=utf-8")
-	mime.AddExtensionType(".js", "application/javascript; charset=utf-8")
-	mime.AddExtensionType(".svg", "image/svg+xml")
-	mime.AddExtensionType(".ico", "image/x-icon")
-
 	// Load .env in development (ignored if file doesn't exist in production)
 	_ = godotenv.Load()
 
@@ -166,9 +159,10 @@ func main() {
 	mux.Handle("GET /photos/", http.StripPrefix("/photos/",
 		http.FileServer(http.Dir(cfg.StoragePath))))
 
-	// Serve static assets (CSS, JS, icons).
-	mux.Handle("GET /static/", http.StripPrefix("/static/",
-		http.FileServer(http.Dir("static"))))
+	// Serve static assets (CSS, JS, icons) from a directory next to the binary.
+	exe, _ := os.Executable()
+	staticDir := filepath.Join(filepath.Dir(exe), "static")
+	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
 
 	handler := middleware.Logging(middleware.SecurityHeaders(mux))
 
