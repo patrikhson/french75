@@ -322,6 +322,23 @@ tbody tr:hover td      { background: #faf8f5; }
 .badge--admin    { background: #cfe2ff; color: #0a367a; }
 
 /* ---------------------------------------------------------------
+   FEED
+--------------------------------------------------------------- */
+.feed-sort {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.btn-active {
+  font-weight: 600;
+  outline: 2px solid var(--color-primary, #333);
+  outline-offset: 1px;
+}
+.card--new {
+  border-left: 4px solid var(--color-primary, #333);
+}
+
+/* ---------------------------------------------------------------
    MAPS
 --------------------------------------------------------------- */
 .map-container {
