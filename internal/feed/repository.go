@@ -19,6 +19,7 @@ type Item struct {
 	UserID       string
 	UserName     string
 	DrinkID      string
+	DrinkSlug    string
 	DrinkName    string
 	Score        int
 	Review       string
@@ -46,7 +47,7 @@ func List(ctx context.Context, db *pgxpool.Pool, sort string, beforeDate time.Ti
 	if sort == SortPosted {
 		r, e := db.Query(ctx,
 			`SELECT c.id, c.user_id, COALESCE(u.display_name, u.username),
-			        d.id, d.name, c.score, LEFT(c.review, 280),
+			        d.id, d.slug, d.name, c.score, LEFT(c.review, 280),
 			        c.drink_date, c.location_name,
 			        COALESCE(p.thumbnail_path, ''),
 			        c.like_count, c.helpful_count, c.submitted_at
@@ -69,7 +70,7 @@ func List(ctx context.Context, db *pgxpool.Pool, sort string, beforeDate time.Ti
 		// or same drink_date but submitted_at < beforeTime.
 		r, e := db.Query(ctx,
 			`SELECT c.id, c.user_id, COALESCE(u.display_name, u.username),
-			        d.id, d.name, c.score, LEFT(c.review, 280),
+			        d.id, d.slug, d.name, c.score, LEFT(c.review, 280),
 			        c.drink_date, c.location_name,
 			        COALESCE(p.thumbnail_path, ''),
 			        c.like_count, c.helpful_count, c.submitted_at
@@ -109,7 +110,7 @@ func ListFollowing(ctx context.Context, db *pgxpool.Pool, currentUserID string, 
 	if sort == SortPosted {
 		r, e := db.Query(ctx,
 			`SELECT c.id, c.user_id, COALESCE(u.display_name, u.username),
-			        d.id, d.name, c.score, LEFT(c.review, 280),
+			        d.id, d.slug, d.name, c.score, LEFT(c.review, 280),
 			        c.drink_date, c.location_name,
 			        COALESCE(p.thumbnail_path, ''),
 			        c.like_count, c.helpful_count, c.submitted_at
@@ -130,7 +131,7 @@ func ListFollowing(ctx context.Context, db *pgxpool.Pool, currentUserID string, 
 	} else {
 		r, e := db.Query(ctx,
 			`SELECT c.id, c.user_id, COALESCE(u.display_name, u.username),
-			        d.id, d.name, c.score, LEFT(c.review, 280),
+			        d.id, d.slug, d.name, c.score, LEFT(c.review, 280),
 			        c.drink_date, c.location_name,
 			        COALESCE(p.thumbnail_path, ''),
 			        c.like_count, c.helpful_count, c.submitted_at
@@ -171,7 +172,7 @@ func scanItems(rows scanner) ([]Item, error) {
 		var it Item
 		if err := rows.Scan(
 			&it.ID, &it.UserID, &it.UserName,
-			&it.DrinkID, &it.DrinkName, &it.Score, &it.Review,
+			&it.DrinkID, &it.DrinkSlug, &it.DrinkName, &it.Score, &it.Review,
 			&it.DrinkDate, &it.LocationName,
 			&it.Thumbnail,
 			&it.LikeCount, &it.HelpfulCount, &it.SubmittedAt,

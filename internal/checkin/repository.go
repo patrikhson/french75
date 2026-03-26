@@ -14,6 +14,7 @@ type CheckIn struct {
 	ID           string
 	UserID       string
 	DrinkID      string
+	DrinkSlug    string
 	DrinkName    string
 	Score        int
 	Review       string
@@ -181,7 +182,7 @@ func Create(ctx context.Context, db *pgxpool.Pool, p CreateParams) (string, erro
 func GetByID(ctx context.Context, db *pgxpool.Pool, id string) (*CheckIn, []Photo, error) {
 	var ci CheckIn
 	err := db.QueryRow(ctx,
-		`SELECT c.id, c.user_id, c.drink_id, d.name, c.score, c.review,
+		`SELECT c.id, c.user_id, c.drink_id, d.slug, d.name, c.score, c.review,
 		        c.drink_date, c.status::text, c.location_name,
 		        c.location_lat, c.location_lng, c.edit_deadline, c.submitted_at,
 		        c.exif_check_passed, c.gps_check_passed, c.gps_distance_m
@@ -189,7 +190,7 @@ func GetByID(ctx context.Context, db *pgxpool.Pool, id string) (*CheckIn, []Phot
 		 WHERE c.id=$1`,
 		id,
 	).Scan(
-		&ci.ID, &ci.UserID, &ci.DrinkID, &ci.DrinkName, &ci.Score, &ci.Review,
+		&ci.ID, &ci.UserID, &ci.DrinkID, &ci.DrinkSlug, &ci.DrinkName, &ci.Score, &ci.Review,
 		&ci.DrinkDate, &ci.Status, &ci.LocationName,
 		&ci.LocationLat, &ci.LocationLng, &ci.EditDeadline, &ci.SubmittedAt,
 		&ci.ExifPassed, &ci.GPSPassed, &ci.GPSDistanceM,

@@ -26,26 +26,25 @@ func NewHandler(placesKey string, db *pgxpool.Pool, photoURLPrefix string) *Hand
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux, requireAuth func(http.Handler) http.Handler) {
-	mux.Handle("GET /location/search", requireAuth(http.HandlerFunc(h.search)))
-	mux.Handle("GET /locations", requireAuth(http.HandlerFunc(h.venues)))
+	mux.Handle("GET /venue/search", requireAuth(http.HandlerFunc(h.search)))
+	mux.Handle("GET /venues", requireAuth(http.HandlerFunc(h.venues)))
 }
 
 // VenueLink returns the URL for a venue detail page.
 func VenueLink(name string) string {
-	return "/locations?name=" + url.QueryEscape(name)
+	return "/venues?name=" + url.QueryEscape(name)
 }
 
 // ---------------------------------------------------------------
 // Places autocomplete
 // ---------------------------------------------------------------
 
-// result is the JSON shape our frontend expects (same as before).
 type result struct {
-	DisplayName string  `json:"display_name"`
-	Lat         string  `json:"lat"`
-	Lon         string  `json:"lon"`
-	OsmID       string  `json:"osm_id"`
-	OsmType     string  `json:"osm_type"`
+	DisplayName string `json:"display_name"`
+	Lat         string `json:"lat"`
+	Lon         string `json:"lon"`
+	OsmID       string `json:"osm_id"`
+	OsmType     string `json:"osm_type"`
 }
 
 func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +55,7 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.placesKey == "" {
-		http.Error(w, "location search not configured", http.StatusServiceUnavailable)
+		http.Error(w, "venue search not configured", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -68,7 +67,7 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 	req, err := http.NewRequestWithContext(r.Context(), "POST",
 		"https://places.googleapis.com/v1/places:autocomplete", bytes.NewReader(body))
 	if err != nil {
-		http.Error(w, "location search unavailable", http.StatusBadGateway)
+		http.Error(w, "venue search unavailable", http.StatusBadGateway)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -77,7 +76,7 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		http.Error(w, "location search unavailable", http.StatusBadGateway)
+		http.Error(w, "venue search unavailable", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
@@ -100,7 +99,6 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// For each suggestion, fetch the place details to get lat/lng.
 	var results []result
 	for _, s := range ac.Suggestions {
 		placeID := s.PlacePrediction.PlaceID
@@ -144,7 +142,7 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------
-// Venue list + detail (both served at GET /locations)
+// Venue list + detail (both served at GET /venues)
 // ---------------------------------------------------------------
 
 func (h *Handler) venues(w http.ResponseWriter, r *http.Request) {
@@ -155,12 +153,32 @@ func (h *Handler) venues(w http.ResponseWriter, r *http.Request) {
 	h.venueList(w, r)
 }
 
+// thSort renders a sortable <th> for the venue list table.
+func thSort(label, col, curSort, curOrder string) string {
+	nextOrder := "desc"
+	arrow := ""
+	if curSort == col {
+		if curOrder == "desc" {
+			arrow = " ↓"
+			nextOrder = "asc"
+		} else {
+			arrow = " ↑"
+			nextOrder = "desc"
+		}
+	}
+	return fmt.Sprintf(`<th><a href="/venues?sort=%s&order=%s">%s%s</a></th>`,
+		col, nextOrder, label, arrow)
+}
+
 func (h *Handler) venueList(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r)
 	role := middleware.GetUserRole(r)
 	unread := notification.UnreadCount(r.Context(), h.db, userID)
 
-	venues, err := ListVenues(r.Context(), h.db)
+	sort := r.URL.Query().Get("sort")
+	order := r.URL.Query().Get("order")
+
+	venues, err := ListVenues(r.Context(), h.db, sort, order)
 	if err != nil {
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
@@ -200,11 +218,15 @@ func (h *Handler) venueList(w http.ResponseWriter, r *http.Request) {
 })();
 </script>`)
 
-	// Table
-	fmt.Fprint(w, `<div class="table-wrap"><table>
-<thead><tr>
-  <th>Venue</th><th>Check-ins</th><th>Avg score</th><th>Drinks</th><th>Visitors</th>
-</tr></thead><tbody>`)
+	// Table with sortable column headings
+	fmt.Fprintf(w, `<div class="table-wrap"><table>
+<thead><tr>%s%s%s%s%s</tr></thead><tbody>`,
+		thSort("Venue", "name", sort, order),
+		thSort("Check-ins", "checkins", sort, order),
+		thSort("Avg score", "avg", sort, order),
+		thSort("Drinks", "drinks", sort, order),
+		thSort("Visitors", "visitors", sort, order),
+	)
 	for _, v := range venues {
 		fmt.Fprintf(w, `<tr>
   <td><a href="%s">%s</a></td>
@@ -231,7 +253,7 @@ func (h *Handler) venueDetail(w http.ResponseWriter, r *http.Request, name strin
 
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprint(w, layout.PageStart(name, role, unread, layout.LeafletCSS))
-	fmt.Fprintf(w, `<p><a href="/locations">← All venues</a></p>
+	fmt.Fprintf(w, `<p><a href="/venues">← All venues</a></p>
 <h2>%s</h2>
 <p class="card-meta">%d check-in(s) · avg score %.1f · %d drink(s) · %d visitor(s)</p>`,
 		stats.Name, stats.CheckinCount, stats.AvgScore, stats.UniqueDrinks, stats.UniqueUsers)
@@ -256,7 +278,7 @@ func (h *Handler) venueDetail(w http.ResponseWriter, r *http.Request, name strin
 			fmt.Fprintf(w, `<tr>
   <td><a href="/drinks/%s">%s</a></td>
   <td>%d</td><td>%.1f</td><td>%d</td><td>%d</td>
-</tr>`, d.DrinkID, d.DrinkName, d.CheckinCount, d.AvgScore, d.MaxScore, d.MinScore)
+</tr>`, d.DrinkSlug, d.DrinkName, d.CheckinCount, d.AvgScore, d.MaxScore, d.MinScore)
 		}
 		fmt.Fprint(w, `</tbody></table></div>`)
 	}
@@ -275,7 +297,7 @@ func (h *Handler) venueDetail(w http.ResponseWriter, r *http.Request, name strin
   <td><a href="/checkins/%s">View</a></td>
 </tr>`,
 				ci.UserID, ci.UserName,
-				ci.DrinkID, ci.DrinkName,
+				ci.DrinkSlug, ci.DrinkName,
 				ci.Score,
 				ci.DrinkDate.Format("2 Jan 2006"),
 				ci.Review,

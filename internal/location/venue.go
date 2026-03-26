@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// VenueRow summarises a location across all check-ins.
+// VenueRow summarises a venue across all check-ins.
 type VenueRow struct {
 	Name         string
 	Lat          float64
@@ -21,6 +21,7 @@ type VenueRow struct {
 // DrinkAtVenue is the per-drink breakdown for a single venue.
 type DrinkAtVenue struct {
 	DrinkID      string
+	DrinkSlug    string
 	DrinkName    string
 	CheckinCount int
 	AvgScore     float64
@@ -32,6 +33,7 @@ type DrinkAtVenue struct {
 type CheckinAtVenue struct {
 	ID        string
 	DrinkID   string
+	DrinkSlug string
 	DrinkName string
 	UserID    string
 	UserName  string
@@ -40,20 +42,36 @@ type CheckinAtVenue struct {
 	Review    string
 }
 
-// ListVenues returns all distinct venues (by location_name), ordered by check-in count desc.
-func ListVenues(ctx context.Context, db *pgxpool.Pool) ([]VenueRow, error) {
+var allowedVenueListSort = map[string]string{
+	"name":     "location_name",
+	"checkins": "checkin_count",
+	"avg":      "avg_score",
+	"drinks":   "unique_drinks",
+	"visitors": "unique_users",
+}
+
+// ListVenues returns all distinct venues ordered by the given column.
+func ListVenues(ctx context.Context, db *pgxpool.Pool, sort, order string) ([]VenueRow, error) {
+	col, ok := allowedVenueListSort[sort]
+	if !ok {
+		col = "checkin_count"
+	}
+	dir := "DESC"
+	if order == "asc" {
+		dir = "ASC"
+	}
 	rows, err := db.Query(ctx, `
 		SELECT location_name,
 		       AVG(location_lat),
 		       AVG(location_lng),
-		       COUNT(*)                  AS checkin_count,
-		       ROUND(AVG(score)::numeric, 1) AS avg_score,
-		       COUNT(DISTINCT user_id)   AS unique_users,
-		       COUNT(DISTINCT drink_id)  AS unique_drinks
+		       COUNT(*)                        AS checkin_count,
+		       ROUND(AVG(score)::numeric, 1)   AS avg_score,
+		       COUNT(DISTINCT user_id)         AS unique_users,
+		       COUNT(DISTINCT drink_id)        AS unique_drinks
 		FROM check_ins
 		WHERE status = 'public'
 		GROUP BY location_name
-		ORDER BY checkin_count DESC, avg_score DESC`)
+		ORDER BY `+col+` `+dir)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +94,7 @@ func GetVenueStats(ctx context.Context, db *pgxpool.Pool, name string) (VenueRow
 		SELECT location_name,
 		       AVG(location_lat),
 		       AVG(location_lng),
-		       COUNT(*)                  AS checkin_count,
+		       COUNT(*)                        AS checkin_count,
 		       ROUND(AVG(score)::numeric, 1),
 		       COUNT(DISTINCT user_id),
 		       COUNT(DISTINCT drink_id)
@@ -91,14 +109,14 @@ func GetVenueStats(ctx context.Context, db *pgxpool.Pool, name string) (VenueRow
 // DrinksAtVenue returns per-drink stats at the given venue, sorted by avg score desc.
 func DrinksAtVenue(ctx context.Context, db *pgxpool.Pool, name string) ([]DrinkAtVenue, error) {
 	rows, err := db.Query(ctx, `
-		SELECT d.id, d.name,
-		       COUNT(*)                     AS cnt,
+		SELECT d.id, d.slug, d.name,
+		       COUNT(*)                        AS cnt,
 		       ROUND(AVG(c.score)::numeric, 1),
 		       MIN(c.score), MAX(c.score)
 		FROM check_ins c
 		JOIN drinks d ON d.id = c.drink_id
 		WHERE c.location_name = $1 AND c.status = 'public'
-		GROUP BY d.id, d.name
+		GROUP BY d.id, d.slug, d.name
 		ORDER BY AVG(c.score) DESC`, name)
 	if err != nil {
 		return nil, err
@@ -108,7 +126,7 @@ func DrinksAtVenue(ctx context.Context, db *pgxpool.Pool, name string) ([]DrinkA
 	var out []DrinkAtVenue
 	for rows.Next() {
 		var d DrinkAtVenue
-		rows.Scan(&d.DrinkID, &d.DrinkName, &d.CheckinCount,
+		rows.Scan(&d.DrinkID, &d.DrinkSlug, &d.DrinkName, &d.CheckinCount,
 			&d.AvgScore, &d.MinScore, &d.MaxScore)
 		out = append(out, d)
 	}
@@ -118,7 +136,7 @@ func DrinksAtVenue(ctx context.Context, db *pgxpool.Pool, name string) ([]DrinkA
 // CheckinsAtVenue returns all public check-ins at the given venue, best score first.
 func CheckinsAtVenue(ctx context.Context, db *pgxpool.Pool, name string) ([]CheckinAtVenue, error) {
 	rows, err := db.Query(ctx, `
-		SELECT c.id, c.drink_id, d.name,
+		SELECT c.id, d.id, d.slug, d.name,
 		       c.user_id, COALESCE(u.display_name, u.username),
 		       c.score, c.drink_date, LEFT(c.review, 200)
 		FROM check_ins c
@@ -134,7 +152,7 @@ func CheckinsAtVenue(ctx context.Context, db *pgxpool.Pool, name string) ([]Chec
 	var out []CheckinAtVenue
 	for rows.Next() {
 		var ci CheckinAtVenue
-		rows.Scan(&ci.ID, &ci.DrinkID, &ci.DrinkName,
+		rows.Scan(&ci.ID, &ci.DrinkID, &ci.DrinkSlug, &ci.DrinkName,
 			&ci.UserID, &ci.UserName,
 			&ci.Score, &ci.DrinkDate, &ci.Review)
 		out = append(out, ci)

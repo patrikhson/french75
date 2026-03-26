@@ -14,7 +14,7 @@ import (
 )
 
 type Handler struct {
-	db      *pgxpool.Pool
+	db       *pgxpool.Pool
 	notifSvc *notification.Service
 }
 
@@ -24,7 +24,7 @@ func NewHandler(db *pgxpool.Pool, mailer *mail.Mailer, baseURL string) *Handler 
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux, requireAuth, requireAdmin func(http.Handler) http.Handler) {
 	mux.Handle("GET /drinks", requireAuth(http.HandlerFunc(h.listDrinks)))
-	mux.Handle("GET /drinks/{id}", requireAuth(http.HandlerFunc(h.drinkDetail)))
+	mux.Handle("GET /drinks/{slug}", requireAuth(http.HandlerFunc(h.drinkDetail)))
 	mux.Handle("POST /drinks/request", requireAuth(http.HandlerFunc(h.submitRequest)))
 
 	mux.Handle("POST /admin/drinks/requests/{id}/approve", requireAdmin(http.HandlerFunc(h.approveRequest)))
@@ -45,14 +45,14 @@ func (h *Handler) listDrinks(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, layout.PageStart("Drinks", role, unread, ""))
 	fmt.Fprint(w, `<h2>Drinks</h2><ul>`)
 	for _, d := range drinks {
-		fmt.Fprintf(w, `<li><strong><a href="/drinks/%s">%s</a></strong>`, d.ID, d.Name)
+		fmt.Fprintf(w, `<li><strong><a href="/drinks/%s">%s</a></strong>`, d.Slug, d.Name)
 		if d.Description != "" {
 			fmt.Fprintf(w, ` — %s`, d.Description)
 		}
 		fmt.Fprint(w, `</li>`)
 	}
 	fmt.Fprint(w, `</ul>
-<p><a href="/locations">Browse all venues →</a></p>
+<p><a href="/venues">Browse all venues →</a></p>
 <hr>
 <h3>Request a drink</h3>
 <form class="form" method="POST" action="/drinks/request">
@@ -111,7 +111,6 @@ func (h *Handler) approveRequest(w http.ResponseWriter, r *http.Request) {
 		id,
 	)
 
-	// HTMX or plain redirect
 	if r.Header.Get("HX-Request") != "" {
 		fmt.Fprint(w, "Approved")
 		return
@@ -154,21 +153,47 @@ func (h *Handler) rejectRequest(w http.ResponseWriter, r *http.Request) {
 // Drink detail page
 // ---------------------------------------------------------------
 
+// thSort renders a sortable <th> for a table on the drink detail page.
+// paramPrefix is "v" for the venues table, "u" for the scorers table.
+func thSort(label, col, paramPrefix, curSort, curOrder, pageURL string) string {
+	nextOrder := "desc"
+	arrow := ""
+	if curSort == col {
+		if curOrder == "desc" {
+			arrow = " ↓"
+			nextOrder = "asc"
+		} else {
+			arrow = " ↑"
+			nextOrder = "desc"
+		}
+	}
+	return fmt.Sprintf(`<th><a href="%s?%ssort=%s&%sorder=%s">%s%s</a></th>`,
+		pageURL, paramPrefix, col, paramPrefix, nextOrder, label, arrow)
+}
+
 func (h *Handler) drinkDetail(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	slug := r.PathValue("slug")
 	userID := middleware.GetUserID(r)
 	role := middleware.GetUserRole(r)
 	unread := notification.UnreadCount(r.Context(), h.db, userID)
 
-	stats, err := GetDrinkStats(r.Context(), h.db, id)
+	stats, err := GetDrinkStats(r.Context(), h.db, slug)
 	if err != nil {
 		http.Error(w, "Drink not found", http.StatusNotFound)
 		return
 	}
 
-	venues, _ := VenuesForDrink(r.Context(), h.db, id)
-	topUsers, _ := TopUsersForDrink(r.Context(), h.db, id)
-	checkins, _ := RecentCheckinsForDrink(r.Context(), h.db, id)
+	// Sort params for venues table (prefix "v") and scorers table (prefix "u").
+	vSort := r.URL.Query().Get("vsort")
+	vOrder := r.URL.Query().Get("vorder")
+	uSort := r.URL.Query().Get("usort")
+	uOrder := r.URL.Query().Get("uorder")
+
+	venues, _ := VenuesForDrink(r.Context(), h.db, stats.ID, vSort, vOrder)
+	topUsers, _ := TopUsersForDrink(r.Context(), h.db, stats.ID, uSort, uOrder)
+	checkins, _ := RecentCheckinsForDrink(r.Context(), h.db, stats.ID)
+
+	pageURL := "/drinks/" + slug
 
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprint(w, layout.PageStart(stats.Name, role, unread, layout.LeafletCSS))
@@ -187,12 +212,17 @@ func (h *Handler) drinkDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Venues ranked by avg score + map
 	if len(venues) > 0 {
-		fmt.Fprint(w, `<h3>Venues</h3>
+		fmt.Fprintf(w, `<h3>Venues</h3>
 <div class="table-wrap"><table>
-<thead><tr><th>Venue</th><th>Check-ins</th><th>Avg score</th><th>Best</th></tr></thead><tbody>`)
+<thead><tr>%s%s%s%s</tr></thead><tbody>`,
+			thSort("Venue", "name", "v", vSort, vOrder, pageURL),
+			thSort("Check-ins", "checkins", "v", vSort, vOrder, pageURL),
+			thSort("Avg score", "avg", "v", vSort, vOrder, pageURL),
+			thSort("Best", "best", "v", vSort, vOrder, pageURL),
+		)
 		for _, v := range venues {
 			fmt.Fprintf(w, `<tr>
-  <td><a href="/locations?name=%s">%s</a></td>
+  <td><a href="/venues?name=%s">%s</a></td>
   <td>%d</td><td>%.1f</td><td>%d</td>
 </tr>`, url.QueryEscape(v.Name), v.Name, v.CheckinCount, v.AvgScore, v.BestScore)
 		}
@@ -210,7 +240,7 @@ func (h *Handler) drinkDetail(w http.ResponseWriter, r *http.Request) {
 `)
 		for _, v := range venues {
 			safeName := strings.ReplaceAll(v.Name, "'", `\'`)
-			fmt.Fprintf(w, "  L.marker([%f,%f]).bindPopup('<a href=\"/locations?name=%s\">%s</a><br>avg %.1f · best %d').addTo(group);\n",
+			fmt.Fprintf(w, "  L.marker([%f,%f]).bindPopup('<a href=\"/venues?name=%s\">%s</a><br>avg %.1f · best %d').addTo(group);\n",
 				v.Lat, v.Lng, url.QueryEscape(v.Name), safeName, v.AvgScore, v.BestScore)
 		}
 		fmt.Fprint(w, `  group.addTo(map);
@@ -225,9 +255,14 @@ func (h *Handler) drinkDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Top scorers
 	if len(topUsers) > 0 {
-		fmt.Fprint(w, `<h3>Top scorers</h3>
+		fmt.Fprintf(w, `<h3>Top scorers</h3>
 <div class="table-wrap"><table>
-<thead><tr><th>User</th><th>Check-ins</th><th>Avg score</th><th>Best</th></tr></thead><tbody>`)
+<thead><tr>%s%s%s%s</tr></thead><tbody>`,
+			thSort("User", "user", "u", uSort, uOrder, pageURL),
+			thSort("Check-ins", "checkins", "u", uSort, uOrder, pageURL),
+			thSort("Avg score", "avg", "u", uSort, uOrder, pageURL),
+			thSort("Best", "best", "u", uSort, uOrder, pageURL),
+		)
 		for _, u := range topUsers {
 			fmt.Fprintf(w, `<tr>
   <td><a href="/users/%s">%s</a></td>
@@ -243,7 +278,7 @@ func (h *Handler) drinkDetail(w http.ResponseWriter, r *http.Request) {
 		for _, ci := range checkins {
 			fmt.Fprintf(w, `<div class="card">
   <div class="card-title">%d/100 — <a href="/users/%s">%s</a></div>
-  <div class="card-meta"><a href="/locations?name=%s">%s</a> · %s</div>
+  <div class="card-meta"><a href="/venues?name=%s">%s</a> · %s</div>
   <p>%s</p>
   <a href="/checkins/%s">View</a>
 </div>`,

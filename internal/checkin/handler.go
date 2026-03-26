@@ -127,7 +127,7 @@ document.getElementById('locationSearch').addEventListener('input', e => {
 });
 
 async function searchLocation(q) {
-  const resp = await fetch('/location/search?q=' + encodeURIComponent(q));
+  const resp = await fetch('/venue/search?q=' + encodeURIComponent(q));
   if (!resp.ok) return;
   const results = await resp.json();
   const div = document.getElementById('locationResults');
@@ -338,11 +338,11 @@ func (h *Handler) show(w http.ResponseWriter, r *http.Request) {
 <h2><a href="/drinks/%s">%s</a></h2>
 <p><strong>Score:</strong> %d/100</p>
 <p><strong>Date:</strong> %s</p>
-<p><strong>Location:</strong> <a href="/locations?name=%s">%s</a></p>
+<p><strong>Venue:</strong> <a href="/venues?name=%s">%s</a></p>
 <p><strong>Status:</strong> %s</p>
 <blockquote>%s</blockquote>
 `,
-		ci.DrinkID, ci.DrinkName,
+		ci.DrinkSlug, ci.DrinkName,
 		ci.Score,
 		ci.DrinkDate.Format("2 January 2006"),
 		url.QueryEscape(ci.LocationName), ci.LocationName,

@@ -2,14 +2,24 @@ package drink
 
 import (
 	"context"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// slugify converts a drink name to a URL-friendly slug.
+func slugify(name string) string {
+	re := regexp.MustCompile(`[^a-z0-9]+`)
+	s := re.ReplaceAllString(strings.ToLower(name), "-")
+	return strings.Trim(s, "-")
+}
+
 // DrinkStats is the drink plus aggregate check-in stats.
 type DrinkStats struct {
 	ID           string
+	Slug         string
 	Name         string
 	Description  string
 	CheckinCount int
@@ -48,20 +58,20 @@ type CheckinRowForDrink struct {
 	Review       string
 }
 
-// GetDrinkStats returns a drink with aggregate check-in stats.
-func GetDrinkStats(ctx context.Context, db *pgxpool.Pool, id string) (*DrinkStats, error) {
+// GetDrinkStats returns a drink with aggregate check-in stats, looked up by slug.
+func GetDrinkStats(ctx context.Context, db *pgxpool.Pool, slug string) (*DrinkStats, error) {
 	var s DrinkStats
 	err := db.QueryRow(ctx, `
-		SELECT d.id, d.name, COALESCE(d.description,''),
+		SELECT d.id, d.slug, d.name, COALESCE(d.description,''),
 		       COUNT(c.id),
 		       COALESCE(ROUND(AVG(c.score)::numeric,1), 0),
 		       COALESCE(MIN(c.score), 0),
 		       COALESCE(MAX(c.score), 0)
 		FROM drinks d
 		LEFT JOIN check_ins c ON c.drink_id=d.id AND c.status='public'
-		WHERE d.id=$1
-		GROUP BY d.id, d.name, d.description`, id,
-	).Scan(&s.ID, &s.Name, &s.Description,
+		WHERE d.slug=$1
+		GROUP BY d.id, d.slug, d.name, d.description`, slug,
+	).Scan(&s.ID, &s.Slug, &s.Name, &s.Description,
 		&s.CheckinCount, &s.AvgScore, &s.MinScore, &s.MaxScore)
 	if err != nil {
 		return nil, err
@@ -69,18 +79,34 @@ func GetDrinkStats(ctx context.Context, db *pgxpool.Pool, id string) (*DrinkStat
 	return &s, nil
 }
 
-// VenuesForDrink returns all venues where this drink was checked in, best avg score first.
-func VenuesForDrink(ctx context.Context, db *pgxpool.Pool, drinkID string) ([]VenueForDrink, error) {
+// allowedVenueSort maps URL param values to safe SQL column expressions.
+var allowedVenueSort = map[string]string{
+	"name":     "location_name",
+	"checkins": "checkin_count",
+	"avg":      "avg_score",
+	"best":     "best_score",
+}
+
+// VenuesForDrink returns all venues where this drink was checked in.
+func VenuesForDrink(ctx context.Context, db *pgxpool.Pool, drinkID, sort, order string) ([]VenueForDrink, error) {
+	col, ok := allowedVenueSort[sort]
+	if !ok {
+		col = "avg_score"
+	}
+	dir := "DESC"
+	if order == "asc" {
+		dir = "ASC"
+	}
 	rows, err := db.Query(ctx, `
 		SELECT location_name,
 		       AVG(location_lat), AVG(location_lng),
-		       COUNT(*),
-		       ROUND(AVG(score)::numeric,1),
-		       MAX(score)
+		       COUNT(*)                        AS checkin_count,
+		       ROUND(AVG(score)::numeric,1)    AS avg_score,
+		       MAX(score)                      AS best_score
 		FROM check_ins
 		WHERE drink_id=$1 AND status='public'
 		GROUP BY location_name
-		ORDER BY AVG(score) DESC, COUNT(*) DESC`, drinkID)
+		ORDER BY `+col+` `+dir, drinkID)
 	if err != nil {
 		return nil, err
 	}
@@ -95,16 +121,34 @@ func VenuesForDrink(ctx context.Context, db *pgxpool.Pool, drinkID string) ([]Ve
 	return out, nil
 }
 
-// TopUsersForDrink returns users with the most and best check-ins for this drink.
-func TopUsersForDrink(ctx context.Context, db *pgxpool.Pool, drinkID string) ([]TopUserForDrink, error) {
+// allowedUserSort maps URL param values to safe SQL column expressions.
+var allowedUserSort = map[string]string{
+	"user":     "username",
+	"checkins": "cnt",
+	"avg":      "avg_score",
+	"best":     "best_score",
+}
+
+// TopUsersForDrink returns users with the most/best check-ins for this drink.
+func TopUsersForDrink(ctx context.Context, db *pgxpool.Pool, drinkID, sort, order string) ([]TopUserForDrink, error) {
+	col, ok := allowedUserSort[sort]
+	if !ok {
+		col = "avg_score"
+	}
+	dir := "DESC"
+	if order == "asc" {
+		dir = "ASC"
+	}
 	rows, err := db.Query(ctx, `
-		SELECT u.id, COALESCE(u.display_name, u.username),
-		       COUNT(*), ROUND(AVG(c.score)::numeric,1), MAX(c.score)
+		SELECT u.id, COALESCE(u.display_name, u.username) AS username,
+		       COUNT(*)                     AS cnt,
+		       ROUND(AVG(c.score)::numeric,1) AS avg_score,
+		       MAX(c.score)                 AS best_score
 		FROM check_ins c
 		JOIN users u ON u.id=c.user_id
 		WHERE c.drink_id=$1 AND c.status='public'
 		GROUP BY u.id, u.display_name, u.username
-		ORDER BY AVG(c.score) DESC, COUNT(*) DESC
+		ORDER BY `+col+` `+dir+`
 		LIMIT 10`, drinkID)
 	if err != nil {
 		return nil, err
@@ -147,6 +191,7 @@ func RecentCheckinsForDrink(ctx context.Context, db *pgxpool.Pool, drinkID strin
 
 type Drink struct {
 	ID          string
+	Slug        string
 	Name        string
 	Description string
 	Recipe      string
@@ -166,7 +211,7 @@ type Request struct {
 
 func ListActive(ctx context.Context, db *pgxpool.Pool) ([]Drink, error) {
 	rows, err := db.Query(ctx,
-		`SELECT id, name, COALESCE(description,''), COALESCE(recipe,''), active, created_at
+		`SELECT id, slug, name, COALESCE(description,''), COALESCE(recipe,''), active, created_at
 		 FROM drinks WHERE active = TRUE ORDER BY name`)
 	if err != nil {
 		return nil, err
@@ -176,7 +221,7 @@ func ListActive(ctx context.Context, db *pgxpool.Pool) ([]Drink, error) {
 	var drinks []Drink
 	for rows.Next() {
 		var d Drink
-		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &d.Recipe, &d.Active, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.Slug, &d.Name, &d.Description, &d.Recipe, &d.Active, &d.CreatedAt); err != nil {
 			return nil, err
 		}
 		drinks = append(drinks, d)
@@ -187,10 +232,10 @@ func ListActive(ctx context.Context, db *pgxpool.Pool) ([]Drink, error) {
 func GetByID(ctx context.Context, db *pgxpool.Pool, id string) (*Drink, error) {
 	var d Drink
 	err := db.QueryRow(ctx,
-		`SELECT id, name, COALESCE(description,''), COALESCE(recipe,''), active, created_at
+		`SELECT id, slug, name, COALESCE(description,''), COALESCE(recipe,''), active, created_at
 		 FROM drinks WHERE id = $1`,
 		id,
-	).Scan(&d.ID, &d.Name, &d.Description, &d.Recipe, &d.Active, &d.CreatedAt)
+	).Scan(&d.ID, &d.Slug, &d.Name, &d.Description, &d.Recipe, &d.Active, &d.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +271,7 @@ func ListPendingRequests(ctx context.Context, db *pgxpool.Pool) ([]Request, erro
 	return reqs, nil
 }
 
-// ApproveRequest approves a drink request, creates the drink, and returns the requester's user ID.
+// ApproveRequest approves a drink request, creates the drink with a slug, and returns the requester's user ID.
 func ApproveRequest(ctx context.Context, db *pgxpool.Pool, requestID, adminID string) (requesterID string, err error) {
 	tx, err := db.Begin(ctx)
 	if err != nil {
@@ -245,10 +290,23 @@ func ApproveRequest(ctx context.Context, db *pgxpool.Pool, requestID, adminID st
 		return "", err
 	}
 
+	baseSlug := slugify(name)
+	if baseSlug == "" {
+		baseSlug = "drink"
+	}
+
+	// Insert with slug; if slug already exists, append 8 chars of the new UUID.
 	var drinkID string
-	err = tx.QueryRow(ctx,
-		`INSERT INTO drinks (name, description, added_by) VALUES ($1,$2,$3) RETURNING id`,
-		name, description, adminID,
+	err = tx.QueryRow(ctx, `
+		INSERT INTO drinks (name, description, slug, added_by)
+		SELECT $1, $2,
+		       CASE WHEN EXISTS (SELECT 1 FROM drinks WHERE slug = $3)
+		            THEN $3 || '-' || LEFT(gen_random_uuid()::text, 8)
+		            ELSE $3
+		       END,
+		       $4
+		RETURNING id`,
+		name, description, baseSlug, adminID,
 	).Scan(&drinkID)
 	if err != nil {
 		return "", err
