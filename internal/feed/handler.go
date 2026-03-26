@@ -132,7 +132,7 @@ func (h *Handler) renderCard(w http.ResponseWriter, it Item) {
 	fmt.Fprintf(w, `<article id="ci-%s" class="card">
   %s
   <div class="card-title"><a href="/drinks/%s">%s</a> — %d/100</div>
-  <div class="card-meta"><a href="/users/%s">%s</a> · <a href="/locations?name=%s">%s</a> · %s</div>
+  <div class="card-meta"><a href="/users/%s">%s</a> · <a href="/locations?name=%s">%s</a> · %s · had %s</div>
   <div class="card-body">%s</div>
   <div class="card-actions">
     <button class="btn-sm" hx-post="/checkins/%s/react?type=like" hx-target="#reaction-like-%s" hx-swap="outerHTML">
@@ -149,6 +149,7 @@ func (h *Handler) renderCard(w http.ResponseWriter, it Item) {
 		it.DrinkID, it.DrinkName, it.Score,
 		it.UserID, it.UserName,
 		url.QueryEscape(it.LocationName), it.LocationName,
+		it.SubmittedAt.Format("2 Jan 2006"),
 		it.DrinkDate.Format("2 Jan 2006"),
 		it.Review,
 		it.ID, it.ID, it.ID, it.LikeCount,
