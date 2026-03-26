@@ -322,6 +322,7 @@ func (h *Handler) finishRegisterPasskey(w http.ResponseWriter, r *http.Request) 
 		"New registration request",
 		fmt.Sprintf("%s (%s) has registered a passkey and is waiting for approval.", name, email),
 		"/admin/registrations",
+		reqID,
 	)
 
 	w.Header().Set("Content-Type", "text/html")

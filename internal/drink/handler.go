@@ -71,7 +71,8 @@ func (h *Handler) submitRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := CreateRequest(r.Context(), h.db, userID, name, description, reason); err != nil {
+	requestID, err := CreateRequest(r.Context(), h.db, userID, name, description, reason)
+	if err != nil {
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
@@ -81,6 +82,7 @@ func (h *Handler) submitRequest(w http.ResponseWriter, r *http.Request) {
 		"New drink request",
 		fmt.Sprintf("%q has been requested.", name),
 		"/admin/drinks/requests",
+		requestID,
 	)
 
 	http.Redirect(w, r, "/drinks?requested=1", http.StatusSeeOther)
@@ -96,11 +98,13 @@ func (h *Handler) approveRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	notification.AutoManageByEntity(r.Context(), h.db, notification.TypeAdminNewDrinkRequest, id)
 	h.notifSvc.Notify(r.Context(), requesterID,
 		notification.TypeDrinkRequestApproved,
 		"Drink request approved",
 		"Your drink request has been approved and added to the list.",
 		"/drinks",
+		id,
 	)
 
 	// HTMX or plain redirect
@@ -126,11 +130,13 @@ func (h *Handler) rejectRequest(w http.ResponseWriter, r *http.Request) {
 	if note != "" {
 		msg += " Note: " + note
 	}
+	notification.AutoManageByEntity(r.Context(), h.db, notification.TypeAdminNewDrinkRequest, id)
 	h.notifSvc.Notify(r.Context(), requesterID,
 		notification.TypeDrinkRequestRejected,
 		"Drink request rejected",
 		msg,
 		"/drinks",
+		id,
 	)
 
 	if r.Header.Get("HX-Request") != "" {

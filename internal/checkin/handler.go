@@ -308,6 +308,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 			"New check-in pending",
 			"A new check-in has been submitted and requires review.",
 			"/admin/checkins/pending",
+			id,
 		)
 	}
 

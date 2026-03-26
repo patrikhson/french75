@@ -36,6 +36,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux, requireAuth func(http.Handl
 	mux.Handle("POST /notifications/manage-all", requireAuth(http.HandlerFunc(h.markAllManaged)))
 	mux.Handle("GET /settings/notifications", requireAuth(http.HandlerFunc(h.showPreferences)))
 	mux.Handle("POST /settings/notifications", requireAuth(http.HandlerFunc(h.savePreferences)))
+	// HTMX polling endpoint — returns just the bell <a> element with fresh unread count.
+	mux.Handle("GET /api/bell", requireAuth(http.HandlerFunc(h.bellFragment)))
 }
 
 // ---------------------------------------------------------------
@@ -99,6 +101,13 @@ func (h *Handler) listNotifications(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fmt.Fprint(w, layout.PageEnd())
+}
+
+func (h *Handler) bellFragment(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r)
+	unread := UnreadCount(r.Context(), h.db, userID)
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprint(w, layout.BellFragment(unread))
 }
 
 func (h *Handler) markManaged(w http.ResponseWriter, r *http.Request) {

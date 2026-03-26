@@ -21,12 +21,13 @@ func NewService(db *pgxpool.Pool, mailer *mail.Mailer, baseURL string) *Service 
 }
 
 // Notify creates an in-app notification and optionally sends an email,
-// according to the user's preferences.
-func (s *Service) Notify(ctx context.Context, userID, ntype, title, body, link string) {
+// according to the user's preferences. entityID links the notification to a
+// specific resource so it can be auto-managed later; pass "" if not applicable.
+func (s *Service) Notify(ctx context.Context, userID, ntype, title, body, link, entityID string) {
 	pref := GetPreference(ctx, s.db, userID, ntype)
 
 	if pref.InAppEnabled {
-		if err := Create(ctx, s.db, userID, ntype, title, body, link); err != nil {
+		if err := Create(ctx, s.db, userID, ntype, title, body, link, entityID); err != nil {
 			log.Printf("notification: create in-app for user %s type %s: %v", userID, ntype, err)
 		}
 	}
@@ -51,14 +52,15 @@ func (s *Service) Notify(ctx context.Context, userID, ntype, title, body, link s
 }
 
 // NotifyAdmins sends a notification to every non-banned admin.
-func (s *Service) NotifyAdmins(ctx context.Context, ntype, title, body, link string) {
+// entityID is passed through to Notify and stored for later auto-management.
+func (s *Service) NotifyAdmins(ctx context.Context, ntype, title, body, link, entityID string) {
 	adminIDs, err := AllAdminIDs(ctx, s.db)
 	if err != nil {
 		log.Printf("notification: list admins: %v", err)
 		return
 	}
 	for _, id := range adminIDs {
-		s.Notify(ctx, id, ntype, title, body, link)
+		s.Notify(ctx, id, ntype, title, body, link, entityID)
 	}
 }
 

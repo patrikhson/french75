@@ -59,13 +59,13 @@ func GetByID(ctx context.Context, db *pgxpool.Pool, id string) (*Drink, error) {
 	return &d, nil
 }
 
-func CreateRequest(ctx context.Context, db *pgxpool.Pool, userID, name, description, reason string) error {
-	_, err := db.Exec(ctx,
+func CreateRequest(ctx context.Context, db *pgxpool.Pool, userID, name, description, reason string) (requestID string, err error) {
+	err = db.QueryRow(ctx,
 		`INSERT INTO drink_requests (requested_by, name, description, reason)
-		 VALUES ($1, $2, $3, $4)`,
+		 VALUES ($1, $2, $3, $4) RETURNING id`,
 		userID, name, description, reason,
-	)
-	return err
+	).Scan(&requestID)
+	return requestID, err
 }
 
 func ListPendingRequests(ctx context.Context, db *pgxpool.Pool) ([]Request, error) {

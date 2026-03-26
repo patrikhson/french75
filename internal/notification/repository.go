@@ -33,13 +33,32 @@ type AdminDigestUser struct {
 	DigestHour  int
 }
 
-// Create inserts a new notification.
-func Create(ctx context.Context, db *pgxpool.Pool, userID, ntype, title, body, link string) error {
+// Create inserts a new notification. entityID links it to a specific resource
+// (e.g. a check-in ID) so it can be auto-managed when that resource is acted on.
+// Pass "" for entityID when no specific entity applies.
+func Create(ctx context.Context, db *pgxpool.Pool, userID, ntype, title, body, link, entityID string) error {
+	var eid interface{}
+	if entityID != "" {
+		eid = entityID
+	}
 	_, err := db.Exec(ctx,
-		`INSERT INTO notifications (user_id, type, title, body, link)
-		 VALUES ($1, $2, $3, $4, $5)`,
-		userID, ntype, title, body, link)
+		`INSERT INTO notifications (user_id, type, title, body, link, entity_id)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		userID, ntype, title, body, link, eid)
 	return err
+}
+
+// AutoManageByEntity marks all unmanaged notifications of the given type and
+// entity_id as managed. Call this after taking action on the underlying resource
+// (e.g. approving a check-in) so admins don't have to dismiss them manually.
+func AutoManageByEntity(ctx context.Context, db *pgxpool.Pool, ntype, entityID string) {
+	if entityID == "" {
+		return
+	}
+	db.Exec(ctx,
+		`UPDATE notifications SET is_managed=TRUE
+		 WHERE type=$1 AND entity_id=$2 AND is_managed=FALSE`,
+		ntype, entityID)
 }
 
 // ListForUser returns all notifications for a user, newest first.

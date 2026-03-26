@@ -37,6 +37,23 @@ func footer() string {
 // Authenticated pages
 // ---------------------------------------------------------------
 
+// BellFragment returns the notification bell element as an HTMX-swappable fragment.
+// It polls /api/bell every 30 s so the count stays live across browser tabs.
+func BellFragment(unread int) string {
+	bellClass := "nav-bell"
+	if unread > 0 {
+		bellClass = "nav-bell nav-bell--unread"
+	}
+	icon := "🔕"
+	if unread > 0 {
+		icon = "🔔"
+	}
+	return fmt.Sprintf(
+		`<a id="nav-bell" href="/notifications" title="Notifications" class="%s" `+
+			`hx-get="/api/bell" hx-trigger="every 30s" hx-swap="outerHTML">%s</a>`,
+		bellClass, icon)
+}
+
 // Nav returns the site header HTML for authenticated users.
 // role is the current user's role ("passive", "active", "admin").
 // unread is the count of unmanaged personal notifications.
@@ -44,15 +61,6 @@ func Nav(role string, unread int) string {
 	adminLink := ""
 	if role == "admin" {
 		adminLink = `<span class="nav-sep">·</span><a href="/admin">Admin</a>`
-	}
-
-	bellClass := "nav-bell"
-	if unread > 0 {
-		bellClass = "nav-bell nav-bell--unread"
-	}
-	bell := "🔔"
-	if unread == 0 {
-		bell = "🔕"
 	}
 
 	return fmt.Sprintf(`<header class="site-header">
@@ -68,14 +76,14 @@ func Nav(role string, unread int) string {
       <a href="/drinks">Drinks</a>
       %s
       <span class="nav-sep">·</span>
-      <a href="/notifications" title="Notifications" class="%s">%s</a>
+      %s
       <span class="nav-sep">·</span>
       <a href="/settings/notifications">Prefs</a>
       <span class="nav-sep">·</span>
       <a href="/auth/logout" hx-post="/auth/logout" hx-push-url="true">Log out</a>
     </nav>
   </div>
-</header>`, adminLink, bellClass, bell)
+</header>`, adminLink, BellFragment(unread))
 }
 
 // PageStart returns the opening HTML for an authenticated page.

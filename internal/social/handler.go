@@ -68,6 +68,7 @@ func (h *Handler) react(w http.ResponseWriter, r *http.Request) {
 				"Someone reacted to your check-in",
 				fmt.Sprintf("%s %s your check-in.", reactorName, label),
 				"/checkins/"+checkinID,
+				checkinID,
 			)
 		}
 	}
@@ -105,15 +106,20 @@ func (h *Handler) follow(w http.ResponseWriter, r *http.Request) {
 
 	// Notify when a new follow request is sent.
 	if state == "requested" {
-		var requesterName string
+		// Look up the new request ID so we can link the notification to it.
+		var requestID, requesterName string
 		h.db.QueryRow(r.Context(),
-			`SELECT COALESCE(display_name, username) FROM users WHERE id = $1`, requesterID,
-		).Scan(&requesterName)
+			`SELECT fr.id, COALESCE(u.display_name, u.username)
+			 FROM follow_requests fr JOIN users u ON u.id=fr.requester_id
+			 WHERE fr.requester_id=$1 AND fr.target_id=$2`,
+			requesterID, targetID,
+		).Scan(&requestID, &requesterName)
 		h.notifSvc.Notify(r.Context(), targetID,
 			notification.TypeFollowRequestReceived,
 			"Follow request",
 			fmt.Sprintf("%s wants to follow you.", requesterName),
 			"/follow-requests",
+			requestID,
 		)
 	}
 
@@ -203,11 +209,13 @@ func (h *Handler) approveFollowRequest(w http.ResponseWriter, r *http.Request) {
 		`SELECT COALESCE(display_name, username) FROM users WHERE id = $1`, targetID,
 	).Scan(&targetName)
 
+	notification.AutoManageByEntity(r.Context(), h.db, notification.TypeFollowRequestReceived, requestID)
 	h.notifSvc.Notify(r.Context(), requesterID,
 		notification.TypeFollowRequestApproved,
 		"Follow request approved",
 		fmt.Sprintf("%s approved your follow request.", targetName),
 		"/users/"+targetID,
+		requestID,
 	)
 
 	http.Redirect(w, r, "/follow-requests", http.StatusSeeOther)
@@ -228,11 +236,13 @@ func (h *Handler) rejectFollowRequest(w http.ResponseWriter, r *http.Request) {
 		`SELECT COALESCE(display_name, username) FROM users WHERE id = $1`, targetID,
 	).Scan(&targetName)
 
+	notification.AutoManageByEntity(r.Context(), h.db, notification.TypeFollowRequestReceived, requestID)
 	h.notifSvc.Notify(r.Context(), requesterID,
 		notification.TypeFollowRequestRejected,
 		"Follow request not approved",
 		fmt.Sprintf("%s did not approve your follow request.", targetName),
 		"/users/"+targetID,
+		requestID,
 	)
 
 	http.Redirect(w, r, "/follow-requests", http.StatusSeeOther)
@@ -259,6 +269,7 @@ func (h *Handler) flag(w http.ResponseWriter, r *http.Request) {
 		"Check-in flagged",
 		"A check-in has been flagged as spam.",
 		"/admin/spam",
+		checkinID,
 	)
 
 	if r.Header.Get("HX-Request") != "" {

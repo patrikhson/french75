@@ -111,6 +111,7 @@ func (h *Handler) approveRegistration(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Could not approve: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	notification.AutoManageByEntity(r.Context(), h.db, notification.TypeAdminNewRegistration, id)
 	// In-app notification (email already sent by SendApprovalEmail).
 	if userID != "" {
 		h.notifSvc.Notify(r.Context(), userID,
@@ -118,6 +119,7 @@ func (h *Handler) approveRegistration(w http.ResponseWriter, r *http.Request) {
 			"Account approved",
 			"Your account has been approved. Welcome to French 75 Tracker!",
 			"/auth/login",
+			id,
 		)
 	}
 	http.Redirect(w, r, "/admin/registrations", http.StatusSeeOther)
@@ -129,6 +131,7 @@ func (h *Handler) rejectRegistration(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
+	notification.AutoManageByEntity(r.Context(), h.db, notification.TypeAdminNewRegistration, id)
 	http.Redirect(w, r, "/admin/registrations", http.StatusSeeOther)
 }
 
@@ -208,11 +211,13 @@ func (h *Handler) approveCheckin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
+	notification.AutoManageByEntity(r.Context(), h.db, notification.TypeAdminNewCheckin, id)
 	h.notifSvc.Notify(r.Context(), ownerID,
 		notification.TypeCheckinApproved,
 		"Check-in approved",
 		"Your check-in has been approved and is now public.",
 		"/checkins/"+id,
+		id,
 	)
 	http.Redirect(w, r, "/admin/checkins/pending", http.StatusSeeOther)
 }
@@ -224,11 +229,13 @@ func (h *Handler) rejectCheckin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
+	notification.AutoManageByEntity(r.Context(), h.db, notification.TypeAdminNewCheckin, id)
 	h.notifSvc.Notify(r.Context(), ownerID,
 		notification.TypeCheckinRejected,
 		"Check-in rejected",
 		"Your check-in was not approved.",
 		"/checkins/"+id,
+		id,
 	)
 	http.Redirect(w, r, "/admin/checkins/pending", http.StatusSeeOther)
 }
@@ -316,10 +323,12 @@ func (h *Handler) listSpam(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) clearSpam(w http.ResponseWriter, r *http.Request) {
-	if err := ClearSpam(r.Context(), h.db, r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+	if err := ClearSpam(r.Context(), h.db, id); err != nil {
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
+	notification.AutoManageByEntity(r.Context(), h.db, notification.TypeAdminSpamFlag, id)
 	http.Redirect(w, r, "/admin/spam", http.StatusSeeOther)
 }
 
