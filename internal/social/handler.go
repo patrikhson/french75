@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/patrikhson/french75/internal/layout"
 	"github.com/patrikhson/french75/internal/mail"
 	"github.com/patrikhson/french75/internal/middleware"
 	"github.com/patrikhson/french75/internal/notification"
@@ -23,6 +24,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux, requireAuth func(http.Handl
 	mux.Handle("POST /checkins/{id}/react", requireAuth(http.HandlerFunc(h.react)))
 	mux.Handle("POST /checkins/{id}/flag", requireAuth(http.HandlerFunc(h.flag)))
 	mux.Handle("POST /users/{id}/follow", requireAuth(http.HandlerFunc(h.follow)))
+	mux.Handle("GET /follow-requests", requireAuth(http.HandlerFunc(h.listFollowRequests)))
+	mux.Handle("POST /follow-requests/{id}/approve", requireAuth(http.HandlerFunc(h.approveFollowRequest)))
+	mux.Handle("POST /follow-requests/{id}/reject", requireAuth(http.HandlerFunc(h.rejectFollowRequest)))
 }
 
 // ---------------------------------------------------------------
@@ -90,41 +94,148 @@ func (h *Handler) react(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------
 
 func (h *Handler) follow(w http.ResponseWriter, r *http.Request) {
-	followerID := middleware.GetUserID(r)
-	followingID := r.PathValue("id")
+	requesterID := middleware.GetUserID(r)
+	targetID := r.PathValue("id")
 
-	nowFollowing, err := ToggleFollow(r.Context(), h.db, followerID, followingID)
+	requested, state, err := RequestOrCancelFollow(r.Context(), h.db, requesterID, targetID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Notify the followed user (only on follow, not unfollow).
-	if nowFollowing {
-		var followerName string
+	// Notify when a new follow request is sent.
+	if state == "requested" {
+		var requesterName string
 		h.db.QueryRow(r.Context(),
-			`SELECT COALESCE(display_name, username) FROM users WHERE id = $1`,
-			followerID,
-		).Scan(&followerName)
-		h.notifSvc.Notify(r.Context(), followingID,
-			notification.TypeNewFollower,
-			"New follower",
-			fmt.Sprintf("%s is now following you.", followerName),
-			"/users/"+followerID,
+			`SELECT COALESCE(display_name, username) FROM users WHERE id = $1`, requesterID,
+		).Scan(&requesterName)
+		h.notifSvc.Notify(r.Context(), targetID,
+			notification.TypeFollowRequestReceived,
+			"Follow request",
+			fmt.Sprintf("%s wants to follow you.", requesterName),
+			"/follow-requests",
 		)
 	}
 
-	// Return HTMX fragment: updated follow button
+	// Notify when someone unfollows (no notification — that's normal social behaviour).
+	_ = requested
+
+	// Return HTMX fragment: updated button.
 	w.Header().Set("Content-Type", "text/html")
-	if nowFollowing {
-		fmt.Fprintf(w,
-			`<button hx-post="/users/%s/follow" hx-target="this" hx-swap="outerHTML">Unfollow</button>`,
-			followingID)
-	} else {
-		fmt.Fprintf(w,
-			`<button hx-post="/users/%s/follow" hx-target="this" hx-swap="outerHTML">Follow</button>`,
-			followingID)
+	fmt.Fprint(w, followButton(targetID, state))
+}
+
+// followButton returns the HTMX follow button HTML for the given state.
+// state: "requested" | "cancelled" | "unfollowed" | "following" | "none"
+func followButton(targetID, state string) string {
+	switch state {
+	case "requested":
+		return fmt.Sprintf(
+			`<button class="btn" hx-post="/users/%s/follow" hx-target="this" hx-swap="outerHTML">Cancel follow request</button>`,
+			targetID)
+	default: // "cancelled", "unfollowed", "none"
+		return fmt.Sprintf(
+			`<button class="btn" hx-post="/users/%s/follow" hx-target="this" hx-swap="outerHTML">Request to follow</button>`,
+			targetID)
 	}
+}
+
+// ---------------------------------------------------------------
+// Follow requests
+// ---------------------------------------------------------------
+
+func (h *Handler) listFollowRequests(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r)
+	role := middleware.GetUserRole(r)
+	unread := notification.UnreadCount(r.Context(), h.db, userID)
+
+	reqs, err := PendingRequestsForUser(r.Context(), h.db, userID)
+	if err != nil {
+		http.Error(w, "Server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprint(w, layout.PageStart("Follow Requests", role, unread, ""))
+	fmt.Fprint(w, `<h2>Follow Requests</h2>`)
+
+	if len(reqs) == 0 {
+		fmt.Fprint(w, `<p>No pending follow requests.</p>`)
+		fmt.Fprint(w, layout.PageEnd())
+		return
+	}
+
+	for _, req := range reqs {
+		fmt.Fprintf(w, `<div class="card">
+  <strong><a href="/users/%s">%s</a></strong>
+  <span class="card-meta"> wants to follow you · %s</span>
+  <div class="card-actions" style="margin-top:8px">
+    <form method="POST" action="/follow-requests/%s/approve" style="display:inline">
+      <button type="submit" class="btn">Approve</button>
+    </form>
+    <form method="POST" action="/follow-requests/%s/reject" style="display:inline;margin-left:8px">
+      <button type="submit" class="btn btn-ghost">Decline</button>
+    </form>
+  </div>
+</div>`,
+			req.RequesterID, req.RequesterName,
+			req.CreatedAt.Format("2 Jan 2006"),
+			req.ID,
+			req.ID,
+		)
+	}
+
+	fmt.Fprint(w, layout.PageEnd())
+}
+
+func (h *Handler) approveFollowRequest(w http.ResponseWriter, r *http.Request) {
+	requestID := r.PathValue("id")
+	targetID := middleware.GetUserID(r)
+
+	requesterID, err := ApproveFollowRequest(r.Context(), h.db, requestID, targetID)
+	if err != nil {
+		http.Error(w, "Could not approve: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var targetName string
+	h.db.QueryRow(r.Context(),
+		`SELECT COALESCE(display_name, username) FROM users WHERE id = $1`, targetID,
+	).Scan(&targetName)
+
+	h.notifSvc.Notify(r.Context(), requesterID,
+		notification.TypeFollowRequestApproved,
+		"Follow request approved",
+		fmt.Sprintf("%s approved your follow request.", targetName),
+		"/users/"+targetID,
+	)
+
+	http.Redirect(w, r, "/follow-requests", http.StatusSeeOther)
+}
+
+func (h *Handler) rejectFollowRequest(w http.ResponseWriter, r *http.Request) {
+	requestID := r.PathValue("id")
+	targetID := middleware.GetUserID(r)
+
+	requesterID, err := RejectFollowRequest(r.Context(), h.db, requestID, targetID)
+	if err != nil {
+		http.Error(w, "Could not decline: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var targetName string
+	h.db.QueryRow(r.Context(),
+		`SELECT COALESCE(display_name, username) FROM users WHERE id = $1`, targetID,
+	).Scan(&targetName)
+
+	h.notifSvc.Notify(r.Context(), requesterID,
+		notification.TypeFollowRequestRejected,
+		"Follow request not approved",
+		fmt.Sprintf("%s did not approve your follow request.", targetName),
+		"/users/"+targetID,
+	)
+
+	http.Redirect(w, r, "/follow-requests", http.StatusSeeOther)
 }
 
 // ---------------------------------------------------------------

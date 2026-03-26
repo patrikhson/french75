@@ -3,6 +3,7 @@ package user
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,9 +24,11 @@ func NewHandler(db *pgxpool.Pool, photoURLPrefix string) *Handler {
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux, requireAuth func(http.Handler) http.Handler) {
 	mux.Handle("GET /users/{id}", requireAuth(http.HandlerFunc(h.profile)))
+	mux.Handle("GET /settings/profile", requireAuth(http.HandlerFunc(h.editProfile)))
+	mux.Handle("POST /settings/profile", requireAuth(http.HandlerFunc(h.saveProfile)))
 }
 
-type profile struct {
+type profileData struct {
 	ID           string
 	Username     string
 	DisplayName  string
@@ -38,7 +41,7 @@ func (h *Handler) profile(w http.ResponseWriter, r *http.Request) {
 	targetID := r.PathValue("id")
 	currentUserID := middleware.GetUserID(r)
 
-	var p profile
+	var p profileData
 	err := h.db.QueryRow(r.Context(),
 		`SELECT id, username, COALESCE(display_name, username), COALESCE(bio,''),
 		        checkin_count, role::text
@@ -52,6 +55,7 @@ func (h *Handler) profile(w http.ResponseWriter, r *http.Request) {
 
 	followers, following := social.FollowCounts(r.Context(), h.db, targetID)
 	isFollowing := currentUserID != targetID && social.IsFollowing(r.Context(), h.db, currentUserID, targetID)
+	hasPending := currentUserID != targetID && social.HasPendingRequest(r.Context(), h.db, currentUserID, targetID)
 	isOwnProfile := currentUserID == targetID
 
 	// Recent public check-ins
@@ -102,14 +106,24 @@ func (h *Handler) profile(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `<p>%s</p>`, p.Bio)
 	}
 
-	if !isOwnProfile {
-		label := "Follow"
-		if isFollowing {
-			label = "Unfollow"
+	if isOwnProfile {
+		pendingCount := social.PendingRequestCount(r.Context(), h.db, currentUserID)
+		fmt.Fprint(w, `<p><a href="/settings/profile">Edit profile</a>`)
+		if pendingCount > 0 {
+			fmt.Fprintf(w, ` &nbsp; <a href="/follow-requests">%d follow request(s) pending</a>`, pendingCount)
 		}
-		fmt.Fprintf(w,
-			`<button hx-post="/users/%s/follow" hx-target="this" hx-swap="outerHTML">%s</button>`,
-			targetID, label)
+		fmt.Fprint(w, `</p>`)
+	} else {
+		var btnState string
+		switch {
+		case isFollowing:
+			btnState = "following"
+		case hasPending:
+			btnState = "requested"
+		default:
+			btnState = "none"
+		}
+		fmt.Fprint(w, followButtonHTML(targetID, btnState))
 	}
 
 	fmt.Fprint(w, `<hr><h3>Check-ins</h3>`)
@@ -166,4 +180,95 @@ func (h *Handler) profile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fmt.Fprint(w, layout.PageEnd())
+}
+
+// followButtonHTML returns the initial follow button for the profile page.
+// state: "following" | "requested" | "none"
+func followButtonHTML(targetID, state string) string {
+	switch state {
+	case "following":
+		return fmt.Sprintf(
+			`<button class="btn" hx-post="/users/%s/follow" hx-target="this" hx-swap="outerHTML">Unfollow</button>`,
+			targetID)
+	case "requested":
+		return fmt.Sprintf(
+			`<button class="btn" hx-post="/users/%s/follow" hx-target="this" hx-swap="outerHTML">Cancel follow request</button>`,
+			targetID)
+	default:
+		return fmt.Sprintf(
+			`<button class="btn" hx-post="/users/%s/follow" hx-target="this" hx-swap="outerHTML">Request to follow</button>`,
+			targetID)
+	}
+}
+
+// ---------------------------------------------------------------
+// Profile editing
+// ---------------------------------------------------------------
+
+func (h *Handler) editProfile(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r)
+	role := middleware.GetUserRole(r)
+	unread := notification.UnreadCount(r.Context(), h.db, userID)
+
+	var displayName, bio string
+	h.db.QueryRow(r.Context(),
+		`SELECT COALESCE(display_name,''), COALESCE(bio,'') FROM users WHERE id=$1`,
+		userID,
+	).Scan(&displayName, &bio)
+
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprint(w, layout.PageStart("Edit Profile", role, unread, ""))
+	fmt.Fprintf(w, `<h2>Edit Profile</h2>
+<form class="form" method="POST" action="/settings/profile">
+  <label>Display name
+    <input type="text" name="display_name" value="%s" maxlength="80">
+  </label>
+  <label>Bio
+    <textarea name="bio" rows="4" maxlength="500">%s</textarea>
+  </label>
+  <div style="display:flex;gap:10px;align-items:center">
+    <button type="submit" class="btn">Save</button>
+    <a href="/users/%s">Cancel</a>
+  </div>
+</form>`, displayName, bio, userID)
+	fmt.Fprint(w, layout.PageEnd())
+}
+
+func (h *Handler) saveProfile(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r)
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	displayName := strings.TrimSpace(r.FormValue("display_name"))
+	bio := strings.TrimSpace(r.FormValue("bio"))
+
+	if len(displayName) > 80 {
+		displayName = displayName[:80]
+	}
+	if len(bio) > 500 {
+		bio = bio[:500]
+	}
+
+	var dnVal interface{} = displayName
+	if displayName == "" {
+		dnVal = nil
+	}
+	var bioVal interface{} = bio
+	if bio == "" {
+		bioVal = nil
+	}
+
+	_, err := h.db.Exec(r.Context(),
+		`UPDATE users SET display_name=$1, bio=$2 WHERE id=$3`,
+		dnVal, bioVal, userID,
+	)
+	if err != nil {
+		http.Error(w, "Server error", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, "/users/"+userID, http.StatusSeeOther)
 }

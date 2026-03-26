@@ -7,8 +7,11 @@ const (
 	TypeDrinkRequestApproved = "drink_request_approved"
 	TypeDrinkRequestRejected = "drink_request_rejected"
 	TypeAccountApproved      = "account_approved"
-	TypeNewFollower          = "new_follower"
-	TypeCheckinReaction      = "checkin_reaction"
+	TypeNewFollower              = "new_follower"
+	TypeCheckinReaction          = "checkin_reaction"
+	TypeFollowRequestReceived    = "follow_request_received"
+	TypeFollowRequestApproved    = "follow_request_approved"
+	TypeFollowRequestRejected    = "follow_request_rejected"
 )
 
 // Notification types sent to admin users.
@@ -28,6 +31,9 @@ var AllTypes = []string{
 	TypeAccountApproved,
 	TypeNewFollower,
 	TypeCheckinReaction,
+	TypeFollowRequestReceived,
+	TypeFollowRequestApproved,
+	TypeFollowRequestRejected,
 	TypeAdminNewRegistration,
 	TypeAdminNewCheckin,
 	TypeAdminNewDrinkRequest,
@@ -51,6 +57,12 @@ func TypeLabel(t string) string {
 		return "New follower"
 	case TypeCheckinReaction:
 		return "Reaction on your check-in"
+	case TypeFollowRequestReceived:
+		return "Follow request received"
+	case TypeFollowRequestApproved:
+		return "Follow request approved"
+	case TypeFollowRequestRejected:
+		return "Follow request not approved"
 	case TypeAdminNewRegistration:
 		return "New registration (admin)"
 	case TypeAdminNewCheckin:

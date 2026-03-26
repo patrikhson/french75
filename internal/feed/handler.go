@@ -131,7 +131,7 @@ func (h *Handler) renderCard(w http.ResponseWriter, it Item) {
 	fmt.Fprintf(w, `<article id="ci-%s" class="card">
   %s
   <div class="card-title">%s — %d/100</div>
-  <div class="card-meta">%s · %s · %s</div>
+  <div class="card-meta"><a href="/users/%s">%s</a> · %s · %s</div>
   <div class="card-body">%s</div>
   <div class="card-actions">
     <button class="btn-sm" hx-post="/checkins/%s/react?type=like" hx-target="#reaction-like-%s" hx-swap="outerHTML">
@@ -146,7 +146,7 @@ func (h *Handler) renderCard(w http.ResponseWriter, it Item) {
 		it.ID,
 		thumbHTML,
 		it.DrinkName, it.Score,
-		it.UserName, it.LocationName, it.DrinkDate.Format("2 Jan 2006"),
+		it.UserID, it.UserName, it.LocationName, it.DrinkDate.Format("2 Jan 2006"),
 		it.Review,
 		it.ID, it.ID, it.ID, it.LikeCount,
 		it.ID, it.ID, it.ID, it.HelpfulCount,
