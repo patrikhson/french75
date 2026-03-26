@@ -113,10 +113,7 @@ func (h *Handler) submitRequest(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) showRequestSuccess(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, `<!DOCTYPE html><html><body>
-<h2>Check your email</h2>
-<p>If that email address is valid, we've sent a verification link. Check your inbox.</p>
-</body></html>`)
+	fmt.Fprint(w, `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Check your email — French 75 Tracker</title><link rel="stylesheet" href="/static/css/site.css"></head><body><header class="site-header"><div class="site-header__inner"><a href="/auth/login" class="site-logo">French 75 Tracker</a></div></header><main class="site-main"><h2>Check your email</h2><p>If that email address is valid, we've sent a verification link. Check your inbox.</p></main><footer class="site-footer"><p>French 75 Tracker</p></footer></body></html>`)
 }
 
 // ---------------------------------------------------------------
@@ -328,10 +325,7 @@ func (h *Handler) finishRegisterPasskey(w http.ResponseWriter, r *http.Request) 
 	)
 
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, `<!DOCTYPE html><html><body>
-<h2>Passkey registered!</h2>
-<p>Your request is now in the queue. You'll receive an email once an admin approves your account.</p>
-</body></html>`)
+	fmt.Fprint(w, `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Request submitted — French 75 Tracker</title><link rel="stylesheet" href="/static/css/site.css"></head><body><header class="site-header"><div class="site-header__inner"><a href="/auth/login" class="site-logo">French 75 Tracker</a></div></header><main class="site-main"><h2>Passkey registered!</h2><p>Your request is now in the queue. You'll receive an email once an admin approves your account.</p></main><footer class="site-footer"><p>French 75 Tracker</p></footer></body></html>`)
 }
 
 // storedCredential is the subset of webauthn.Credential persisted in registration_requests.
@@ -350,10 +344,7 @@ type storedCredential struct {
 
 func (h *Handler) showPending(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, `<!DOCTYPE html><html><body>
-<h2>Request submitted</h2>
-<p>Your passkey is registered. You'll receive an email when an admin approves your account.</p>
-</body></html>`)
+	fmt.Fprint(w, `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pending approval — French 75 Tracker</title><link rel="stylesheet" href="/static/css/site.css"></head><body><header class="site-header"><div class="site-header__inner"><a href="/auth/login" class="site-logo">French 75 Tracker</a></div></header><main class="site-main"><h2>Request submitted</h2><p>Your passkey is registered. You'll receive an email when an admin approves your account.</p></main><footer class="site-footer"><p>French 75 Tracker</p></footer></body></html>`)
 }
 
 func (h *Handler) showLogin(w http.ResponseWriter, r *http.Request) {
@@ -514,25 +505,47 @@ func (u *waUser) WebAuthnCredentials() []webauthn.Credential { return u.credenti
 
 const requestFormHTML = `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Request Access — French 75 Tracker</title></head>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Request Access — French 75 Tracker</title>
+  <link rel="stylesheet" href="/static/css/site.css">
+</head>
 <body>
+<header class="site-header">
+  <div class="site-header__inner">
+    <a href="/auth/login" class="site-logo">French 75 Tracker</a>
+  </div>
+</header>
+<main class="site-main">
 <h2>Request Access</h2>
-<form method="POST" action="/auth/request">
-  <label>Your name<br><input type="text" name="name" required></label><br><br>
-  <label>Email address<br><input type="email" name="email" required></label><br><br>
+<form class="form" method="POST" action="/auth/request">
+  <label>Your name<input type="text" name="name" required></label>
+  <label>Email address<input type="email" name="email" required></label>
   <button type="submit">Request Access</button>
 </form>
+</main>
+<footer class="site-footer"><p>French 75 Tracker</p></footer>
 </body></html>`
 
 const loginHTML = `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Log in — French 75 Tracker</title></head>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Log in — French 75 Tracker</title>
+  <link rel="stylesheet" href="/static/css/site.css">
+</head>
 <body>
+<header class="site-header">
+  <div class="site-header__inner">
+    <a href="/auth/login" class="site-logo">French 75 Tracker</a>
+  </div>
+</header>
+<main class="site-main">
 <h2>Log in</h2>
-<form id="loginForm">
-  <label>Email address<br><input type="email" id="email" name="email" required></label><br><br>
+<form class="form" id="loginForm">
+  <label>Email address<input type="email" id="email" name="email" required></label>
   <button type="submit">Log in with passkey</button>
 </form>
 <p><a href="/auth/request">Request an account</a></p>
@@ -587,13 +600,25 @@ function bufferToBase64(buf) {
     .replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
 }
 </script>
+</main>
+<footer class="site-footer"><p>French 75 Tracker</p></footer>
 </body></html>`
 
 var registerPasskeyHTML = `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Set up passkey — French 75 Tracker</title></head>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Set up passkey — French 75 Tracker</title>
+  <link rel="stylesheet" href="/static/css/site.css">
+</head>
 <body>
+<header class="site-header">
+  <div class="site-header__inner">
+    <a href="/auth/login" class="site-logo">French 75 Tracker</a>
+  </div>
+</header>
+<main class="site-main">
 <h2>Welcome, %s!</h2>
 <p>Set up your passkey to access French 75 Tracker. You can use Face ID, Touch ID, or a security key.</p>
 <button id="registerBtn">Set up passkey</button>
@@ -637,6 +662,8 @@ function bufferToBase64(buf) {
     .replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
 }
 </script>
+</main>
+<footer class="site-footer"><p>French 75 Tracker</p></footer>
 </body></html>`
 
 // Ensure time is used

@@ -1,74 +1,158 @@
+// Package layout provides shared HTML page scaffolding for all pages.
+//
+// Every page should use one of the PageStart / AdminPageStart / PublicPageStart
+// functions to open the page, and the corresponding PageEnd to close it.
+// This guarantees a consistent header, footer, CSS, and viewport meta across
+// the entire site.
 package layout
 
 import "fmt"
 
-// Nav renders the authenticated top navigation bar.
+// LeafletCSS is the <link> tag for Leaflet maps. Pass it as extraHead to any
+// PageStart function for pages that embed a map.
+const LeafletCSS = `<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">`
+
+// ---------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------
+
+func head(title, extraHead string) string {
+	return fmt.Sprintf(`<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>%s — French 75 Tracker</title>
+  <link rel="stylesheet" href="/static/css/site.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+  %s
+</head>`, title, extraHead)
+}
+
+func footer() string {
+	return `<footer class="site-footer">
+  <p>French 75 Tracker</p>
+</footer>`
+}
+
+// ---------------------------------------------------------------
+// Authenticated pages
+// ---------------------------------------------------------------
+
+// Nav returns the site header HTML for authenticated users.
+// role is the current user's role ("passive", "active", "admin").
 // unread is the count of unmanaged personal notifications.
 func Nav(role string, unread int) string {
 	adminLink := ""
 	if role == "admin" {
-		adminLink = ` <a href="/admin">Admin</a> |`
+		adminLink = `<span class="nav-sep">·</span><a href="/admin">Admin</a>`
 	}
 
+	bellClass := "nav-bell"
+	if unread > 0 {
+		bellClass = "nav-bell nav-bell--unread"
+	}
 	bell := "🔔"
 	if unread == 0 {
 		bell = "🔕"
 	}
 
-	return fmt.Sprintf(`<header>
-  <h1><a href="/" style="text-decoration:none;color:inherit;">French 75 Tracker</a></h1>
-  <nav>
-    <a href="/checkins/new">+ Check-in</a> |
-    <a href="/feed/following">Following</a> |
-    <a href="/drinks">Drinks</a> |%s
-    <a href="/notifications" title="Notifications">%s</a> |
-    <a href="/settings/notifications">Prefs</a> |
-    <a href="/auth/logout" hx-post="/auth/logout" hx-push-url="true">Log out</a>
-  </nav>
-</header>`, adminLink, bell)
+	return fmt.Sprintf(`<header class="site-header">
+  <div class="site-header__inner">
+    <a href="/" class="site-logo">French 75 Tracker</a>
+    <nav class="site-nav">
+      <a href="/checkins/new">+ Check-in</a>
+      <span class="nav-sep">·</span>
+      <a href="/">Feed</a>
+      <span class="nav-sep">·</span>
+      <a href="/feed/following">Following</a>
+      <span class="nav-sep">·</span>
+      <a href="/drinks">Drinks</a>
+      %s
+      <span class="nav-sep">·</span>
+      <a href="/notifications" title="Notifications" class="%s">%s</a>
+      <span class="nav-sep">·</span>
+      <a href="/settings/notifications">Prefs</a>
+      <span class="nav-sep">·</span>
+      <a href="/auth/logout" hx-post="/auth/logout" hx-push-url="true">Log out</a>
+    </nav>
+  </div>
+</header>`, adminLink, bellClass, bell)
 }
 
-// PageStart renders the opening HTML with the authenticated nav.
-func PageStart(title, role string, unread int) string {
+// PageStart returns the opening HTML for an authenticated page.
+// extraHead is injected into <head>; use layout.LeafletCSS for map pages.
+func PageStart(title, role string, unread int, extraHead string) string {
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>%s — French 75 Tracker</title>
-<script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
-</head>
+%s
 <body>
 %s
-<main>`, title, Nav(role, unread))
+<main class="site-main">`, head(title, extraHead), Nav(role, unread))
 }
 
-// PageEnd renders the closing HTML.
+// PageEnd returns the closing HTML for pages opened with PageStart.
 func PageEnd() string {
-	return `</main>
-</body></html>`
+	return footer() + "\n</body></html>"
 }
 
-// PublicPageStart renders the opening HTML for unauthenticated pages (no nav).
-func PublicPageStart(title string) string {
-	return fmt.Sprintf(`<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>%s — French 75 Tracker</title>
-</head>
-<body>
-<h2>%s</h2>`, title, title)
-}
+// ---------------------------------------------------------------
+// Admin pages
+// ---------------------------------------------------------------
 
-// AdminPage renders the opening HTML for admin pages with nav back to the site.
-func AdminPage(title, content string) string {
+// AdminPageStart returns the opening HTML for an admin page.
+// Admin pages get a wider layout and a breadcrumb bar with a back-to-site link.
+func AdminPageStart(title string) string {
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>%s — Admin</title></head>
+%s
 <body>
-<nav style="margin-bottom:8px">
-  <a href="/admin">Admin dashboard</a> |
-  <a href="/">← Back to site</a>
-</nav>
+<header class="site-header wide">
+  <div class="site-header__inner">
+    <a href="/admin" class="site-logo">French 75 Tracker — Admin</a>
+  </div>
+</header>
+<div class="admin-bar">
+  <div class="admin-bar__inner">
+    <a href="/admin">Dashboard</a>
+    <a href="/admin/registrations">Registrations</a>
+    <a href="/admin/checkins/pending">Check-ins</a>
+    <a href="/admin/drinks/requests">Drink requests</a>
+    <a href="/admin/spam">Spam</a>
+    <a href="/admin/users">Users</a>
+    <a href="/">← Back to site</a>
+  </div>
+</div>
+<main class="site-main wide">
 <h2>%s</h2>
-%s`, title, title, content)
+`, head(title+" — Admin", ""), title)
+}
+
+// AdminPageEnd returns the closing HTML for admin pages.
+func AdminPageEnd() string {
+	return footer() + "\n</body></html>"
+}
+
+// ---------------------------------------------------------------
+// Public (unauthenticated) pages
+// ---------------------------------------------------------------
+
+// PublicPageStart returns the opening HTML for unauthenticated pages.
+// extraHead is optional additional <head> content.
+func PublicPageStart(title, extraHead string) string {
+	return fmt.Sprintf(`<!DOCTYPE html>
+<html lang="en">
+%s
+<body>
+<header class="site-header">
+  <div class="site-header__inner">
+    <a href="/auth/login" class="site-logo">French 75 Tracker</a>
+  </div>
+</header>
+<main class="site-main">
+<h2>%s</h2>
+`, head(title, extraHead), title)
+}
+
+// PublicPageEnd returns the closing HTML for public pages.
+func PublicPageEnd() string {
+	return footer() + "\n</body></html>"
 }

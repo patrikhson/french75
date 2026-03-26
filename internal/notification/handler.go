@@ -55,7 +55,7 @@ func (h *Handler) listNotifications(w http.ResponseWriter, r *http.Request) {
 	unread := UnreadCount(r.Context(), h.db, userID)
 
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, layout.PageStart("Notifications", role, unread))
+	fmt.Fprint(w, layout.PageStart("Notifications", role, unread, ""))
 	fmt.Fprint(w, `<h2>Notifications</h2>`)
 
 	if len(ns) > 0 {
@@ -133,7 +133,7 @@ func (h *Handler) showPreferences(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, layout.PageStart("Notification Preferences", role, unread))
+	fmt.Fprint(w, layout.PageStart("Notification Preferences", role, unread, ""))
 	fmt.Fprint(w, `<h2>Notification Preferences</h2>
 <form method="POST" action="/settings/notifications">
 <table border="1" cellpadding="6">

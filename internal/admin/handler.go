@@ -57,7 +57,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux, requireAdmin func(http.Hand
 func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 	c := GetCounts(r.Context(), h.db)
 	w.Header().Set("Content-Type", "text/html")
-	body := layout.AdminPage("Admin Dashboard", fmt.Sprintf(`<ul>
+	fmt.Fprint(w, layout.AdminPageStart("Admin Dashboard"))
+	fmt.Fprintf(w, `<ul>
   <li><a href="/admin/registrations">Registrations</a> — %d pending</li>
   <li><a href="/admin/checkins/pending">Pending check-ins</a> — %d pending</li>
   <li><a href="/admin/drinks/requests">Drink requests</a> — %d pending</li>
@@ -66,8 +67,8 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 </ul>`,
 		c.PendingRegistrations, c.PendingCheckins,
 		c.PendingDrinkRequests, c.UnreviewedFlags,
-	)) + "</body></html>"
-	fmt.Fprint(w, body)
+	)
+	fmt.Fprint(w, layout.AdminPageEnd())
 }
 
 // ---------------------------------------------------------------
@@ -81,7 +82,8 @@ func (h *Handler) listRegistrations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, layout.AdminPage("Pending Registrations", `<table border="1" cellpadding="6"><tr><th>Name</th><th>Email</th><th>Requested</th><th></th></tr>`))
+	fmt.Fprint(w, layout.AdminPageStart("Pending Registrations"))
+	fmt.Fprint(w, `<div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Requested</th><th></th></tr></thead><tbody>`)
 	for _, rq := range reqs {
 		fmt.Fprintf(w, `<tr>
   <td>%s</td><td>%s</td><td>%s</td>
@@ -98,7 +100,8 @@ func (h *Handler) listRegistrations(w http.ResponseWriter, r *http.Request) {
 	if len(reqs) == 0 {
 		fmt.Fprint(w, `<tr><td colspan="4">No pending registrations.</td></tr>`)
 	}
-	fmt.Fprint(w, `</table></body></html>`)
+	fmt.Fprint(w, `</tbody></table></div>`)
+	fmt.Fprint(w, layout.AdminPageEnd())
 }
 
 func (h *Handler) approveRegistration(w http.ResponseWriter, r *http.Request) {
@@ -140,7 +143,8 @@ func (h *Handler) listPendingCheckins(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, layout.AdminPage("Pending Check-ins", `<table border="1" cellpadding="6"><tr><th>User</th><th>Role</th><th>Drink</th><th>Date</th><th>Location</th><th>EXIF date</th><th>Device GPS</th><th>Photo GPS</th><th>Review</th><th></th></tr>`))
+	fmt.Fprint(w, layout.AdminPageStart("Pending Check-ins"))
+	fmt.Fprint(w, `<div class="table-wrap"><table><thead><tr><th>User</th><th>Role</th><th>Drink</th><th>Date</th><th>Location</th><th>EXIF</th><th>GPS</th><th>Photo GPS</th><th>Review</th><th></th></tr></thead><tbody>`)
 	for _, ci := range items {
 		exif := "—"
 		if ci.ExifPassed != nil {
@@ -193,7 +197,8 @@ func (h *Handler) listPendingCheckins(w http.ResponseWriter, r *http.Request) {
 	if len(items) == 0 {
 		fmt.Fprint(w, `<tr><td colspan="9">No pending check-ins.</td></tr>`)
 	}
-	fmt.Fprint(w, `</table></body></html>`)
+	fmt.Fprint(w, `</tbody></table></div>`)
+	fmt.Fprint(w, layout.AdminPageEnd())
 }
 
 func (h *Handler) approveCheckin(w http.ResponseWriter, r *http.Request) {
@@ -248,7 +253,8 @@ func (h *Handler) listDrinkRequests(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, layout.AdminPage("Drink Requests", `<table border="1" cellpadding="6"><tr><th>User</th><th>Drink</th><th>Description</th><th>Reason</th><th>Date</th><th></th></tr>`))
+	fmt.Fprint(w, layout.AdminPageStart("Drink Requests"))
+	fmt.Fprint(w, `<div class="table-wrap"><table><thead><tr><th>User</th><th>Drink</th><th>Description</th><th>Reason</th><th>Date</th><th></th></tr></thead><tbody>`)
 
 	adminID := middleware.GetUserID(r)
 	empty := true
@@ -274,7 +280,8 @@ func (h *Handler) listDrinkRequests(w http.ResponseWriter, r *http.Request) {
 	if empty {
 		fmt.Fprint(w, `<tr><td colspan="6">No pending drink requests.</td></tr>`)
 	}
-	fmt.Fprint(w, `</table></body></html>`)
+	fmt.Fprint(w, `</tbody></table></div>`)
+	fmt.Fprint(w, layout.AdminPageEnd())
 }
 
 // ---------------------------------------------------------------
@@ -288,7 +295,8 @@ func (h *Handler) listSpam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, layout.AdminPage("Flagged / Spam", `<table border="1" cellpadding="6"><tr><th>User</th><th>Drink</th><th>Flags</th><th>Status</th><th>Review</th><th></th></tr>`))
+	fmt.Fprint(w, layout.AdminPageStart("Flagged / Spam"))
+	fmt.Fprint(w, `<div class="table-wrap"><table><thead><tr><th>User</th><th>Drink</th><th>Flags</th><th>Status</th><th>Review</th><th></th></tr></thead><tbody>`)
 	for _, f := range items {
 		fmt.Fprintf(w, `<tr>
   <td>%s</td><td>%s</td><td>%d</td><td>%s</td><td>%s</td>
@@ -303,7 +311,8 @@ func (h *Handler) listSpam(w http.ResponseWriter, r *http.Request) {
 	if len(items) == 0 {
 		fmt.Fprint(w, `<tr><td colspan="6">No flagged check-ins.</td></tr>`)
 	}
-	fmt.Fprint(w, `</table></body></html>`)
+	fmt.Fprint(w, `</tbody></table></div>`)
+	fmt.Fprint(w, layout.AdminPageEnd())
 }
 
 func (h *Handler) clearSpam(w http.ResponseWriter, r *http.Request) {
@@ -325,7 +334,8 @@ func (h *Handler) listUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, layout.AdminPage("Users", `<table border="1" cellpadding="6"><tr><th>Username</th><th>Display name</th><th>Role</th><th>Check-ins</th><th>Banned</th><th>Joined</th><th></th></tr>`))
+	fmt.Fprint(w, layout.AdminPageStart("Users"))
+	fmt.Fprint(w, `<div class="table-wrap"><table><thead><tr><th>Username</th><th>Display name</th><th>Role</th><th>Check-ins</th><th>Banned</th><th>Joined</th><th></th></tr></thead><tbody>`)
 	for _, u := range users {
 		banned := "No"
 		if u.IsBanned {
@@ -352,7 +362,8 @@ func (h *Handler) listUsers(w http.ResponseWriter, r *http.Request) {
 			banAction, u.ID, u.ID,
 		)
 	}
-	fmt.Fprint(w, `</table></body></html>`)
+	fmt.Fprint(w, `</tbody></table></div>`)
+	fmt.Fprint(w, layout.AdminPageEnd())
 }
 
 func (h *Handler) banUser(w http.ResponseWriter, r *http.Request) {

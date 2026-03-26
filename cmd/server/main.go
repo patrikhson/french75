@@ -158,6 +158,10 @@ func main() {
 	mux.Handle("GET /photos/", http.StripPrefix("/photos/",
 		http.FileServer(http.Dir(cfg.StoragePath))))
 
+	// Serve static assets (CSS, JS, icons)
+	mux.Handle("GET /static/", http.StripPrefix("/static/",
+		http.FileServer(http.Dir("static"))))
+
 	handler := middleware.Logging(middleware.SecurityHeaders(mux))
 
 	srv := &http.Server{

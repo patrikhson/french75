@@ -39,13 +39,8 @@ func (h *Handler) listDrinks(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r)
 	unread := notification.UnreadCount(r.Context(), h.db, userID)
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, `<!DOCTYPE html><html><head><meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Drinks — French 75 Tracker</title>
-<script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
-</head><body>%s<main>
-<h2>Drinks</h2>
-<ul>`, layout.Nav(role, unread))
+	fmt.Fprint(w, layout.PageStart("Drinks", role, unread, ""))
+	fmt.Fprint(w, `<h2>Drinks</h2><ul>`)
 	for _, d := range drinks {
 		fmt.Fprintf(w, `<li><strong>%s</strong>`, d.Name)
 		if d.Description != "" {
@@ -56,13 +51,13 @@ func (h *Handler) listDrinks(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `</ul>
 <hr>
 <h3>Request a drink</h3>
-<form method="POST" action="/drinks/request">
-  <label>Drink name<br><input type="text" name="name" required></label><br><br>
-  <label>Description<br><textarea name="description"></textarea></label><br><br>
-  <label>Why should we add it?<br><textarea name="reason"></textarea></label><br><br>
+<form class="form" method="POST" action="/drinks/request">
+  <label>Drink name<input type="text" name="name" required></label>
+  <label>Description<textarea name="description"></textarea></label>
+  <label>Why should we add it?<textarea name="reason"></textarea></label>
   <button type="submit">Submit request</button>
-</form>
-</main></body></html>`)
+</form>`)
+	fmt.Fprint(w, layout.PageEnd())
 }
 
 func (h *Handler) submitRequest(w http.ResponseWriter, r *http.Request) {
@@ -88,12 +83,7 @@ func (h *Handler) submitRequest(w http.ResponseWriter, r *http.Request) {
 		"/admin/drinks/requests",
 	)
 
-	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, `<!DOCTYPE html><html><body>
-<h2>Request submitted</h2>
-<p>Thanks! An admin will review your request.</p>
-<p><a href="/drinks">Back to drinks</a></p>
-</body></html>`)
+	http.Redirect(w, r, "/drinks?requested=1", http.StatusSeeOther)
 }
 
 func (h *Handler) approveRequest(w http.ResponseWriter, r *http.Request) {

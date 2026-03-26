@@ -51,13 +51,7 @@ func (h *Handler) index(w http.ResponseWriter, r *http.Request) {
 
 	if !isHTMX {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>French 75 Tracker</title>
-<script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
-</head>
-<body>%s<main id="feed">`, layout.Nav(middleware.GetUserRole(r), notification.UnreadCount(r.Context(), h.db, middleware.GetUserID(r))))
+		fmt.Fprint(w, layout.PageStart("Feed", middleware.GetUserRole(r), notification.UnreadCount(r.Context(), h.db, middleware.GetUserID(r)), ""))
 	}
 
 	for _, it := range items {
@@ -76,7 +70,7 @@ func (h *Handler) index(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !isHTMX {
-		fmt.Fprint(w, `</main></body></html>`)
+		fmt.Fprint(w, layout.PageEnd())
 	}
 }
 
@@ -99,16 +93,8 @@ func (h *Handler) following(w http.ResponseWriter, r *http.Request) {
 	isHTMX := r.Header.Get("HX-Request") != ""
 
 	if !isHTMX {
-		role := middleware.GetUserRole(r)
-		unread := notification.UnreadCount(r.Context(), h.db, userID)
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Following — French 75 Tracker</title>
-<script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
-</head>
-<body>%s<main id="feed">`, layout.Nav(role, unread))
+		fmt.Fprint(w, layout.PageStart("Following", middleware.GetUserRole(r), notification.UnreadCount(r.Context(), h.db, userID), ""))
 	}
 
 	if len(items) == 0 && !isHTMX {
@@ -131,27 +117,27 @@ func (h *Handler) following(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !isHTMX {
-		fmt.Fprint(w, `</main></body></html>`)
+		fmt.Fprint(w, layout.PageEnd())
 	}
 }
 
 func (h *Handler) renderCard(w http.ResponseWriter, it Item) {
 	thumbHTML := ""
 	if it.Thumbnail != "" {
-		thumbHTML = fmt.Sprintf(`<img src="%s/%s" alt="" style="width:80px;height:80px;object-fit:cover;float:right;">`,
+		thumbHTML = fmt.Sprintf(`<img src="%s/%s" alt="" class="card-thumb">`,
 			h.photoURLPrefix, it.Thumbnail)
 	}
 
-	fmt.Fprintf(w, `<article id="ci-%s" style="border:1px solid #ccc;padding:12px;margin:8px 0;border-radius:4px;">
+	fmt.Fprintf(w, `<article id="ci-%s" class="card">
   %s
-  <div><strong>%s</strong> — %d/100</div>
-  <div>%s · %s · %s</div>
-  <p>%s</p>
-  <div>
-    <button hx-post="/checkins/%s/react?type=like" hx-target="#reaction-like-%s" hx-swap="outerHTML">
+  <div class="card-title">%s — %d/100</div>
+  <div class="card-meta">%s · %s · %s</div>
+  <div class="card-body">%s</div>
+  <div class="card-actions">
+    <button class="btn-sm" hx-post="/checkins/%s/react?type=like" hx-target="#reaction-like-%s" hx-swap="outerHTML">
       <span id="reaction-like-%s">👍 %d</span>
     </button>
-    <button hx-post="/checkins/%s/react?type=helpful" hx-target="#reaction-helpful-%s" hx-swap="outerHTML">
+    <button class="btn-sm" hx-post="/checkins/%s/react?type=helpful" hx-target="#reaction-helpful-%s" hx-swap="outerHTML">
       <span id="reaction-helpful-%s">💡 %d</span>
     </button>
     <a href="/checkins/%s">View</a>

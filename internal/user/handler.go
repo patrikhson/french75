@@ -91,17 +91,10 @@ func (h *Handler) profile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>%s — French 75 Tracker</title>
-<script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-</head>
-<body>%s<main>
-<h2>%s</h2>
-<p>@%s · %d check-ins · %d followers · %d following</p>`,
-		p.DisplayName, layout.Nav(middleware.GetUserRole(r), notification.UnreadCount(r.Context(), h.db, currentUserID)), p.DisplayName, p.Username,
+	fmt.Fprint(w, layout.PageStart(p.DisplayName, middleware.GetUserRole(r), notification.UnreadCount(r.Context(), h.db, currentUserID), layout.LeafletCSS))
+	fmt.Fprintf(w, `<h2>%s</h2>
+<p class="card-meta">@%s · %d check-ins · %d followers · %d following</p>`,
+		p.DisplayName, p.Username,
 		p.CheckinCount, followers, following,
 	)
 
@@ -128,11 +121,10 @@ func (h *Handler) profile(w http.ResponseWriter, r *http.Request) {
 				`<img src="%s/%s" style="width:60px;height:60px;object-fit:cover;float:right;">`,
 				h.photoURLPrefix, c.Thumbnail)
 		}
-		fmt.Fprintf(w, `<div style="border:1px solid #ccc;padding:8px;margin:6px 0;">
+		fmt.Fprintf(w, `<div class="card">
   %s
-  <strong>%s</strong> — %d/100<br>
-  %s · %s<br>
-  <small>%s</small>
+  <div class="card-title">%s — %d/100</div>
+  <div class="card-meta">%s · %s · <small>%s</small></div>
   <p>%s</p>
   <a href="/checkins/%s">View</a>
 </div>`,
@@ -150,7 +142,7 @@ func (h *Handler) profile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(checkins) > 0 {
-		fmt.Fprint(w, `<hr><h3>Map</h3><div id="profileMap" style="height:300px;border-radius:4px;"></div>
+		fmt.Fprint(w, `<hr><h3>Map</h3><div id="profileMap" class="map-container"></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>(function(){
   const map = L.map('profileMap');
@@ -173,5 +165,5 @@ func (h *Handler) profile(w http.ResponseWriter, r *http.Request) {
 </script>`)
 	}
 
-	fmt.Fprint(w, `</main></body></html>`)
+	fmt.Fprint(w, layout.PageEnd())
 }
