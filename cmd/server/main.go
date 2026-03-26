@@ -2,16 +2,18 @@ package main
 
 import (
 	"context"
+	"io/fs"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/joho/godotenv"
+	french75 "github.com/patrikhson/french75"
 	"github.com/patrikhson/french75/internal/admin"
 	"github.com/patrikhson/french75/internal/auth"
 	"github.com/patrikhson/french75/internal/checkin"
@@ -29,6 +31,13 @@ import (
 )
 
 func main() {
+	// Register MIME types so http.FileServer uses the correct Content-Type on
+	// hosts where /etc/mime.types is missing or incomplete (e.g. minimal Debian).
+	mime.AddExtensionType(".css", "text/css; charset=utf-8")
+	mime.AddExtensionType(".js", "application/javascript; charset=utf-8")
+	mime.AddExtensionType(".svg", "image/svg+xml")
+	mime.AddExtensionType(".ico", "image/x-icon")
+
 	// Load .env in development (ignored if file doesn't exist in production)
 	_ = godotenv.Load()
 
@@ -159,10 +168,12 @@ func main() {
 	mux.Handle("GET /photos/", http.StripPrefix("/photos/",
 		http.FileServer(http.Dir(cfg.StoragePath))))
 
-	// Serve static assets (CSS, JS, icons) from a directory next to the binary.
-	exe, _ := os.Executable()
-	staticDir := filepath.Join(filepath.Dir(exe), "static")
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
+	// Serve static assets (CSS, JS, icons) embedded in the binary.
+	staticSub, err := fs.Sub(french75.StaticFiles, "static")
+	if err != nil {
+		log.Fatalf("static embed: %v", err)
+	}
+	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
 
 	handler := middleware.Logging(middleware.SecurityHeaders(mux))
 

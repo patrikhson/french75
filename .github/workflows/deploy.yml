@@ -50,15 +50,10 @@ jobs:
           scp -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no \
             french75-linux deploy@vm01.paftech.se:/tmp/french75_new
 
-          scp -r -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no \
-            static deploy@vm01.paftech.se:/tmp/french75_static
-
           ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no \
             deploy@vm01.paftech.se \
             'sudo mv /tmp/french75_new /opt/french75/french75 \
             && sudo chmod +x /opt/french75/french75 \
-            && sudo mv /opt/french75/static /tmp/french75_static_old || true \
-            && sudo mv /tmp/french75_static /opt/french75/static \
             && sudo systemctl restart french75 \
             && sleep 3 \
             && systemctl is-active french75'
