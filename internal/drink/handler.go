@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/patrikhson/french75/internal/layout"
@@ -208,10 +209,9 @@ func (h *Handler) drinkDetail(w http.ResponseWriter, r *http.Request) {
   const group = L.featureGroup();
 `)
 		for _, v := range venues {
-			popup := fmt.Sprintf(`<a href=\"/locations?name=%s\">%s</a><br>avg %.1f, best %d`,
-				url.QueryEscape(v.Name), v.Name, v.AvgScore, v.BestScore)
-			fmt.Fprintf(w, "  L.marker([%f,%f]).bindPopup(%q).addTo(group);\n",
-				v.Lat, v.Lng, popup)
+			safeName := strings.ReplaceAll(v.Name, "'", `\'`)
+			fmt.Fprintf(w, "  L.marker([%f,%f]).bindPopup('<a href=\"/locations?name=%s\">%s</a><br>avg %.1f · best %d').addTo(group);\n",
+				v.Lat, v.Lng, url.QueryEscape(v.Name), safeName, v.AvgScore, v.BestScore)
 		}
 		fmt.Fprint(w, `  group.addTo(map);
   if (group.getLayers().length === 1) {

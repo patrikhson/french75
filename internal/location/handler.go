@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/patrikhson/french75/internal/layout"
@@ -186,10 +187,9 @@ func (h *Handler) venueList(w http.ResponseWriter, r *http.Request) {
   const group = L.featureGroup();
 `)
 	for _, v := range venues {
-		popup := fmt.Sprintf(`<a href=\"%s\">%s</a><br>%d check-in(s), avg %.1f`,
-			VenueLink(v.Name), v.Name, v.CheckinCount, v.AvgScore)
-		fmt.Fprintf(w, "  L.marker([%f,%f]).bindPopup(%q).addTo(group);\n",
-			v.Lat, v.Lng, popup)
+		safeName := strings.ReplaceAll(v.Name, "'", `\'`)
+		fmt.Fprintf(w, "  L.marker([%f,%f]).bindPopup('<a href=\"%s\">%s</a><br>%d check-in(s) · avg %.1f').addTo(group);\n",
+			v.Lat, v.Lng, VenueLink(v.Name), safeName, v.CheckinCount, v.AvgScore)
 	}
 	fmt.Fprint(w, `  group.addTo(map);
   if (group.getLayers().length === 1) {
