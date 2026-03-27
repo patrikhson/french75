@@ -109,11 +109,13 @@ func (h *Handler) showNew(w http.ResponseWriter, r *http.Request) {
   <input type="hidden" name="submission_accuracy" id="submissionAccuracy">
 
   <label>Photo (required)<br>
-  <input type="file" id="photoInput" accept="image/jpeg,image/png" multiple></label>
+  <input type="file" id="photoInput" accept="image/jpeg,image/png,image/*" multiple></label>
+  <div id="photoError" style="color:red;margin:4px 0;"></div>
   <div id="photoPreview"></div>
   <div id="photoIds"></div><br>
 
-  <button type="submit">Submit Check-in</button>
+  <button type="submit" id="submitBtn">Submit Check-in</button>
+  <span id="uploadStatus" style="margin-left:8px;font-size:0.9em;color:#555;"></span>
 </form>
 
 <script>
@@ -211,6 +213,8 @@ function showLocationMap(lat, lng, name) {
 }
 
 // Photo upload
+let _uploading = 0;
+
 document.getElementById('photoInput').addEventListener('change', async e => {
   for (const file of e.target.files) {
     await uploadPhoto(file);
@@ -219,25 +223,58 @@ document.getElementById('photoInput').addEventListener('change', async e => {
 });
 
 async function uploadPhoto(file) {
+  const errEl = document.getElementById('photoError');
+  const statusEl = document.getElementById('uploadStatus');
+  errEl.textContent = '';
+  _uploading++;
+  document.getElementById('submitBtn').disabled = true;
+  statusEl.textContent = 'Uploading photo…';
+
   const fd = new FormData();
   fd.append('photo', file);
-  const resp = await fetch('/photos/upload', {method:'POST', body:fd});
-  if (!resp.ok) { alert('Photo upload failed: ' + await resp.text()); return; }
+  let resp;
+  try {
+    resp = await fetch('/photos/upload', {method:'POST', body:fd});
+  } catch(e) {
+    errEl.textContent = 'Network error during upload. Please try again.';
+    _uploading--;
+    if (_uploading === 0) { document.getElementById('submitBtn').disabled = false; statusEl.textContent = ''; }
+    return;
+  }
+
+  if (!resp.ok) {
+    errEl.textContent = 'Upload failed: ' + await resp.text();
+    _uploading--;
+    if (_uploading === 0) { document.getElementById('submitBtn').disabled = false; statusEl.textContent = ''; }
+    return;
+  }
+
   const data = await resp.json();
 
-  // Add hidden input with photo ID
   const input = document.createElement('input');
   input.type = 'hidden';
   input.name = 'photo_ids';
   input.value = data.id;
   document.getElementById('photoIds').appendChild(input);
 
-  // Show thumbnail preview
   const img = document.createElement('img');
   img.src = data.thumbnail_url;
-  img.style.cssText = 'width:80px;height:80px;object-fit:cover;margin:4px;';
+  img.style.cssText = 'width:80px;height:80px;object-fit:cover;margin:4px;border-radius:4px;';
   document.getElementById('photoPreview').appendChild(img);
+
+  _uploading--;
+  if (_uploading === 0) { document.getElementById('submitBtn').disabled = false; statusEl.textContent = ''; }
 }
+
+// Block submit if no photos uploaded
+document.getElementById('checkinForm').addEventListener('submit', e => {
+  const ids = document.getElementById('photoIds').querySelectorAll('input');
+  if (ids.length === 0) {
+    e.preventDefault();
+    document.getElementById('photoError').textContent = 'Please upload at least one photo before submitting.';
+    document.getElementById('photoInput').scrollIntoView({behavior:'smooth'});
+  }
+});
 </script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 `, today, today)
