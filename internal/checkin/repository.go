@@ -113,6 +113,13 @@ func Create(ctx context.Context, db *pgxpool.Pool, p CreateParams) (string, erro
 
 	// EXIF check: compare first photo's EXIF timestamp to drink_date.
 	// nil exifPassed means no EXIF data — not penalised.
+	//
+	// EXIF DateTime is stored in local time without a timezone. goexif returns
+	// it as UTC, so for a user in UTC+2 the apparent "UTC" time is 2 hours ahead
+	// of real UTC. To avoid false failures for users who photograph late at night
+	// (past midnight local time) while entering the previous day as drink_date,
+	// we allow a 36-hour window instead of 24. This still catches photos taken
+	// days before or after the stated drink date.
 	var exifTS *time.Time
 	tx.QueryRow(ctx, `SELECT exif_timestamp FROM photos WHERE id=$1`, p.PhotoIDs[0]).Scan(&exifTS)
 
@@ -122,7 +129,7 @@ func Create(ctx context.Context, db *pgxpool.Pool, p CreateParams) (string, erro
 		if diff < 0 {
 			diff = -diff
 		}
-		passed := diff < 24*time.Hour
+		passed := diff < 36*time.Hour
 		exifPassed = &passed
 	}
 
