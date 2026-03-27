@@ -109,7 +109,7 @@ func (h *Handler) showNew(w http.ResponseWriter, r *http.Request) {
   <input type="hidden" name="submission_accuracy" id="submissionAccuracy">
 
   <label>Photo (required)<br>
-  <input type="file" id="photoInput" accept="image/jpeg,image/png,image/*" multiple></label>
+  <input type="file" id="photoInput" accept="image/jpeg,image/png,image/webp" multiple></label>
   <div id="photoError" style="color:red;margin:4px 0;"></div>
   <div id="photoPreview"></div>
   <div id="photoIds"></div><br>

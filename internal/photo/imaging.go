@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"golang.org/x/image/draw"
+	"golang.org/x/image/math/f64"
 )
 
 // fit scales src to fit within maxW×maxH, preserving aspect ratio.
@@ -19,7 +20,7 @@ func fit(src image.Image, maxW, maxH int) image.Image {
 	dstW := max(1, int(float64(srcW)*ratio))
 	dstH := max(1, int(float64(srcH)*ratio))
 	dst := image.NewRGBA(image.Rect(0, 0, dstW, dstH))
-	draw.CatmullRom.Scale(dst, dst.Bounds(), src, b, draw.Over, nil)
+	draw.CatmullRom.Scale(dst, dst.Bounds(), src, b, draw.Src, nil)
 	return dst
 }
 
@@ -27,121 +28,40 @@ func fit(src image.Image, maxW, maxH int) image.Image {
 func applyOrientation(img image.Image, orientation int) image.Image {
 	switch orientation {
 	case 2:
-		return flipH(img)
+		return transform(img, img.Bounds().Dx(), img.Bounds().Dy(),
+			f64.Aff3{-1, 0, float64(img.Bounds().Dx() - 1), 0, 1, 0})
 	case 3:
-		return rotate180(img)
+		w, h := img.Bounds().Dx(), img.Bounds().Dy()
+		return transform(img, w, h,
+			f64.Aff3{-1, 0, float64(w - 1), 0, -1, float64(h - 1)})
 	case 4:
-		return flipV(img)
-	case 5:
-		return transpose(img)
-	case 6:
-		return rotate90CW(img)
-	case 7:
-		return transverse(img)
-	case 8:
-		return rotate90CCW(img)
+		return transform(img, img.Bounds().Dx(), img.Bounds().Dy(),
+			f64.Aff3{1, 0, 0, 0, -1, float64(img.Bounds().Dy() - 1)})
+	case 5: // transpose
+		w, h := img.Bounds().Dx(), img.Bounds().Dy()
+		return transform(img, h, w, f64.Aff3{0, 1, 0, 1, 0, 0})
+	case 6: // rotate 90° CW
+		w, h := img.Bounds().Dx(), img.Bounds().Dy()
+		return transform(img, h, w,
+			f64.Aff3{0, -1, float64(h - 1), 1, 0, 0})
+	case 7: // transverse
+		w, h := img.Bounds().Dx(), img.Bounds().Dy()
+		return transform(img, h, w,
+			f64.Aff3{0, -1, float64(h - 1), -1, 0, float64(w - 1)})
+	case 8: // rotate 90° CCW
+		w, h := img.Bounds().Dx(), img.Bounds().Dy()
+		return transform(img, h, w,
+			f64.Aff3{0, 1, 0, -1, 0, float64(w - 1)})
 	default:
 		return img
 	}
 }
 
-func newRGBA(img image.Image) *image.RGBA {
-	b := img.Bounds()
-	dst := image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
-	draw.Src.Draw(dst, dst.Bounds(), img, b.Min)
-	return dst
-}
-
-func flipH(img image.Image) image.Image {
-	b := img.Bounds()
-	w, h := b.Dx(), b.Dy()
-	src := newRGBA(img)
-	dst := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			dst.Set(w-1-x, y, src.At(x, y))
-		}
-	}
-	return dst
-}
-
-func flipV(img image.Image) image.Image {
-	b := img.Bounds()
-	w, h := b.Dx(), b.Dy()
-	src := newRGBA(img)
-	dst := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			dst.Set(x, h-1-y, src.At(x, y))
-		}
-	}
-	return dst
-}
-
-func rotate180(img image.Image) image.Image {
-	b := img.Bounds()
-	w, h := b.Dx(), b.Dy()
-	src := newRGBA(img)
-	dst := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			dst.Set(w-1-x, h-1-y, src.At(x, y))
-		}
-	}
-	return dst
-}
-
-func rotate90CW(img image.Image) image.Image {
-	b := img.Bounds()
-	w, h := b.Dx(), b.Dy()
-	src := newRGBA(img)
-	dst := image.NewRGBA(image.Rect(0, 0, h, w))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			dst.Set(h-1-y, x, src.At(x, y))
-		}
-	}
-	return dst
-}
-
-func rotate90CCW(img image.Image) image.Image {
-	b := img.Bounds()
-	w, h := b.Dx(), b.Dy()
-	src := newRGBA(img)
-	dst := image.NewRGBA(image.Rect(0, 0, h, w))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			dst.Set(y, w-1-x, src.At(x, y))
-		}
-	}
-	return dst
-}
-
-// transpose: flip along top-left to bottom-right diagonal (orientation 5)
-func transpose(img image.Image) image.Image {
-	b := img.Bounds()
-	w, h := b.Dx(), b.Dy()
-	src := newRGBA(img)
-	dst := image.NewRGBA(image.Rect(0, 0, h, w))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			dst.Set(y, x, src.At(x, y))
-		}
-	}
-	return dst
-}
-
-// transverse: flip along top-right to bottom-left diagonal (orientation 7)
-func transverse(img image.Image) image.Image {
-	b := img.Bounds()
-	w, h := b.Dx(), b.Dy()
-	src := newRGBA(img)
-	dst := image.NewRGBA(image.Rect(0, 0, h, w))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			dst.Set(h-1-y, w-1-x, src.At(x, y))
-		}
-	}
+// transform applies an affine transformation (source→destination mapping) using
+// NearestNeighbor — lossless for axis-aligned flips and 90° rotations.
+func transform(src image.Image, dstW, dstH int, s2d f64.Aff3) image.Image {
+	dst := image.NewRGBA(image.Rect(0, 0, dstW, dstH))
+	draw.NearestNeighbor.Transform(dst, s2d, src, src.Bounds(), draw.Src, nil)
 	return dst
 }
 
