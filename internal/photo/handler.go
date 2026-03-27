@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/patrikhson/french75/internal/middleware"
+	_ "golang.org/x/image/webp"
 )
 
 const maxUploadSize = 50 << 20 // 50 MB
@@ -57,8 +58,8 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 	data := buf.Bytes()
 
 	mime := http.DetectContentType(data)
-	if !strings.HasPrefix(mime, "image/jpeg") && !strings.HasPrefix(mime, "image/png") {
-		http.Error(w, "Only JPEG and PNG are supported", http.StatusBadRequest)
+	if !strings.HasPrefix(mime, "image/jpeg") && !strings.HasPrefix(mime, "image/png") && !strings.HasPrefix(mime, "image/webp") {
+		http.Error(w, "Unsupported image format (got "+mime+"). Please use JPEG, PNG, or WebP.", http.StatusBadRequest)
 		return
 	}
 

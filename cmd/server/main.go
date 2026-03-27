@@ -178,11 +178,11 @@ func main() {
 	handler := middleware.Logging(middleware.SecurityHeaders(mux))
 
 	srv := &http.Server{
-		Addr:         ":" + cfg.Port,
-		Handler:      handler,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:              ":" + cfg.Port,
+		Handler:           handler,
+		ReadHeaderTimeout: 15 * time.Second, // headers only; body read has no deadline (needed for photo uploads)
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	go func() {
