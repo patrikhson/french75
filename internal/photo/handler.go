@@ -3,10 +3,12 @@ package photo
 import (
 	"bytes"
 	"encoding/json"
+	"image"
+	"image/jpeg"
+	_ "image/png"
 	"net/http"
 	"strings"
 
-	"github.com/disintegration/imaging"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/patrikhson/french75/internal/middleware"
@@ -62,22 +64,23 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 
 	exifData := ExtractEXIF(data)
 
-	src, err := imaging.Decode(bytes.NewReader(data), imaging.AutoOrientation(true))
+	src, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		http.Error(w, "Could not decode image", http.StatusBadRequest)
 		return
 	}
+	src = applyOrientation(src, exifData.Orientation)
 
-	resized := imaging.Fit(src, 2000, 2000, imaging.Lanczos)
-	thumb := imaging.Fit(src, 400, 400, imaging.Lanczos)
+	resized := fit(src, 2000, 2000)
+	thumb := fit(src, 400, 400)
 
 	id := uuid.NewString()
 	mainFilename := id + ".jpg"
 	thumbFilename := id + "_thumb.jpg"
 
 	var mainBuf, thumbBuf bytes.Buffer
-	imaging.Encode(&mainBuf, resized, imaging.JPEG, imaging.JPEGQuality(85))
-	imaging.Encode(&thumbBuf, thumb, imaging.JPEG, imaging.JPEGQuality(80))
+	jpeg.Encode(&mainBuf, resized, &jpeg.Options{Quality: 85})
+	jpeg.Encode(&thumbBuf, thumb, &jpeg.Options{Quality: 80})
 
 	mainPath, err := h.storage.Save(r.Context(), &mainBuf, mainFilename)
 	if err != nil {

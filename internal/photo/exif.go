@@ -9,9 +9,10 @@ import (
 
 // EXIFData holds the fields we care about from a photo's EXIF metadata.
 type EXIFData struct {
-	Timestamp *time.Time
-	Lat       *float64
-	Lng       *float64
+	Timestamp   *time.Time
+	Lat         *float64
+	Lng         *float64
+	Orientation int // EXIF orientation tag (1–8); 0 means absent/unknown
 }
 
 // ExtractEXIF reads EXIF metadata from raw image bytes.
@@ -31,6 +32,12 @@ func ExtractEXIF(data []byte) EXIFData {
 	if lat, lng, err := x.LatLong(); err == nil {
 		result.Lat = &lat
 		result.Lng = &lng
+	}
+
+	if tag, err := x.Get(exif.Orientation); err == nil {
+		if o, err := tag.Int(0); err == nil {
+			result.Orientation = o
+		}
 	}
 
 	return result
