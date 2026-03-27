@@ -37,7 +37,8 @@ func NewHandler(db *pgxpool.Pool, wa *webauthn.WebAuthn, mailer *mail.Mailer, ba
 }
 
 // RegisterRoutes wires up all auth routes on the given mux.
-func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
+// requireAuth is used to protect the passkey settings routes.
+func (h *Handler) RegisterRoutes(mux *http.ServeMux, requireAuth func(http.Handler) http.Handler) {
 	// Registration request flow
 	mux.HandleFunc("GET /auth/request", h.showRequestForm)
 	mux.HandleFunc("POST /auth/request", h.submitRequest)
@@ -58,6 +59,13 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Logout
 	mux.HandleFunc("POST /auth/logout", h.logout)
+
+	// Passkey settings (authenticated)
+	mux.Handle("GET /settings/passkeys", requireAuth(http.HandlerFunc(h.showPasskeys)))
+	mux.Handle("POST /settings/passkeys/add/begin", requireAuth(http.HandlerFunc(h.beginAddPasskey)))
+	mux.Handle("POST /settings/passkeys/add/finish", requireAuth(http.HandlerFunc(h.finishAddPasskey)))
+	mux.Handle("POST /settings/passkeys/{id}/rename", requireAuth(http.HandlerFunc(h.renamePasskey)))
+	mux.Handle("POST /settings/passkeys/{id}/delete", requireAuth(http.HandlerFunc(h.deletePasskey)))
 }
 
 // ---------------------------------------------------------------

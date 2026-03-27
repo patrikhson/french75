@@ -118,7 +118,7 @@ func main() {
 		w.Write([]byte("ok"))
 	})
 
-	authHandler.RegisterRoutes(mux)
+	authHandler.RegisterRoutes(mux, auth.RequireAuth(pool))
 
 	drinkHandler := drink.NewHandler(pool, mailer, cfg.AppBaseURL)
 	drinkHandler.RegisterRoutes(mux,

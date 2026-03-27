@@ -187,7 +187,9 @@ func (h *Handler) showPreferences(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fmt.Fprint(w, `<button type="submit">Save preferences</button>
-</form>`)
+</form>
+<hr>
+<p><a href="/settings/passkeys">Manage passkeys →</a></p>`)
 	fmt.Fprint(w, layout.PageEnd())
 }
 
