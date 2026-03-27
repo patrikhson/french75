@@ -145,8 +145,10 @@ func Create(ctx context.Context, db *pgxpool.Pool, p CreateParams) (string, erro
 		gpsPassed = &passed
 	}
 
-	// Active/admin users go public unless a check failed or the drink date is older than 2 days.
-	checkFailed := (exifPassed != nil && !*exifPassed) || (gpsPassed != nil && !*gpsPassed)
+	// Active/admin users go public unless the EXIF check failed or the drink date is
+	// older than 2 days. GPS distance is recorded for admin info but not used to gate
+	// status — indoor GPS can be hundreds of metres off and venue pins are imprecise.
+	checkFailed := exifPassed != nil && !*exifPassed
 	daysOld := int(today.Sub(drinkDate).Hours() / 24)
 	status := "pending"
 	if (p.UserRole == "active" || p.UserRole == "admin") && !checkFailed && daysOld <= 1 {
