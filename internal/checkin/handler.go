@@ -334,24 +334,40 @@ func (h *Handler) show(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprint(w, layout.PageStart(ci.DrinkName+" Check-in", userRole, notification.UnreadCount(r.Context(), h.db, userID), layout.LeafletCSS))
+
 	fmt.Fprintf(w, `<p><a href="/">← Feed</a></p>
 <h2><a href="/drinks/%s">%s</a></h2>
-<p><strong>Score:</strong> %d/100</p>
-<p><strong>Date:</strong> %s</p>
-<p><strong>Venue:</strong> <a href="/venues?name=%s">%s</a></p>
-<p><strong>Status:</strong> %s</p>
+<p>
+  <strong>By:</strong> <a href="/users/%s">%s</a><br>
+  <strong>Drinking date:</strong> %s<br>
+  <strong>Posted:</strong> %s<br>
+  <strong>Venue:</strong> <a href="/venues?name=%s">%s</a><br>
+  <strong>Score:</strong> %d/100
+</p>
 <blockquote>%s</blockquote>
+<div class="card-actions">
+  <button class="btn-sm" hx-post="/checkins/%s/react?type=like" hx-target="#reaction-like-%s" hx-swap="outerHTML">
+    <span id="reaction-like-%s">👍 %d</span>
+  </button>
+  <button class="btn-sm" hx-post="/checkins/%s/react?type=helpful" hx-target="#reaction-helpful-%s" hx-swap="outerHTML">
+    <span id="reaction-helpful-%s">💡 %d</span>
+  </button>
+</div>
 `,
 		ci.DrinkSlug, ci.DrinkName,
-		ci.Score,
+		ci.UserID, ci.UserName,
 		ci.DrinkDate.Format("2 January 2006"),
+		ci.SubmittedAt.Format("2 January 2006 15:04"),
 		url.QueryEscape(ci.LocationName), ci.LocationName,
-		ci.Status,
+		ci.Score,
 		ci.Review,
+		ci.ID, ci.ID, ci.ID, ci.LikeCount,
+		ci.ID, ci.ID, ci.ID, ci.HelpfulCount,
 	)
 
 	for _, p := range photos {
-		fmt.Fprintf(w, `<img src="%s/%s" style="max-width:100%%;display:block;margin:8px 0;">`,
+		fmt.Fprintf(w, `<a href="%s/%s"><img src="%s/%s" style="max-width:100%%;display:block;margin:8px 0;"></a>`,
+			h.photoURLPrefix, p.URL,
 			h.photoURLPrefix, p.ThumbnailURL)
 	}
 

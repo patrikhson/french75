@@ -13,6 +13,7 @@ import (
 type CheckIn struct {
 	ID           string
 	UserID       string
+	UserName     string
 	DrinkID      string
 	DrinkSlug    string
 	DrinkName    string
@@ -25,6 +26,8 @@ type CheckIn struct {
 	LocationLng  float64
 	EditDeadline time.Time
 	SubmittedAt  time.Time
+	LikeCount    int
+	HelpfulCount int
 	ExifPassed   *bool
 	GPSPassed    *bool
 	GPSDistanceM *int
@@ -182,17 +185,23 @@ func Create(ctx context.Context, db *pgxpool.Pool, p CreateParams) (string, erro
 func GetByID(ctx context.Context, db *pgxpool.Pool, id string) (*CheckIn, []Photo, error) {
 	var ci CheckIn
 	err := db.QueryRow(ctx,
-		`SELECT c.id, c.user_id, c.drink_id, d.slug, d.name, c.score, c.review,
+		`SELECT c.id, c.user_id, COALESCE(u.display_name, u.username),
+		        c.drink_id, d.slug, d.name, c.score, c.review,
 		        c.drink_date, c.status::text, c.location_name,
 		        c.location_lat, c.location_lng, c.edit_deadline, c.submitted_at,
+		        c.like_count, c.helpful_count,
 		        c.exif_check_passed, c.gps_check_passed, c.gps_distance_m
-		 FROM check_ins c JOIN drinks d ON d.id=c.drink_id
+		 FROM check_ins c
+		 JOIN drinks d ON d.id = c.drink_id
+		 JOIN users u ON u.id = c.user_id
 		 WHERE c.id=$1`,
 		id,
 	).Scan(
-		&ci.ID, &ci.UserID, &ci.DrinkID, &ci.DrinkSlug, &ci.DrinkName, &ci.Score, &ci.Review,
+		&ci.ID, &ci.UserID, &ci.UserName,
+		&ci.DrinkID, &ci.DrinkSlug, &ci.DrinkName, &ci.Score, &ci.Review,
 		&ci.DrinkDate, &ci.Status, &ci.LocationName,
 		&ci.LocationLat, &ci.LocationLng, &ci.EditDeadline, &ci.SubmittedAt,
+		&ci.LikeCount, &ci.HelpfulCount,
 		&ci.ExifPassed, &ci.GPSPassed, &ci.GPSDistanceM,
 	)
 	if err != nil {
