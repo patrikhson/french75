@@ -214,7 +214,7 @@ func (h *Handler) renderCard(w http.ResponseWriter, it Item, lastView time.Time,
 
 	fmt.Fprintf(w, `<article id="ci-%s" class="%s">
   %s
-  <div class="card-title"><a href="/drinks/%s">%s</a> — %d/100</div>
+  <div class="card-title"><a href="/drinks/%s">%s</a> — %s</div>
   <div class="card-meta"><a href="/users/%s">%s</a> · <a href="/venues?name=%s">%s</a> · %s</div>
   <div class="card-body">%s</div>
   <div class="card-actions">
@@ -229,7 +229,7 @@ func (h *Handler) renderCard(w http.ResponseWriter, it Item, lastView time.Time,
 </article>`,
 		it.ID, cardClass,
 		thumbHTML,
-		it.DrinkSlug, it.DrinkName, it.Score,
+		it.DrinkSlug, it.DrinkName, layout.ScoreHTML(it.Score),
 		it.UserID, it.UserName,
 		url.QueryEscape(it.LocationName), it.LocationName,
 		dateStr,

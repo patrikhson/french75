@@ -137,13 +137,13 @@ func (h *Handler) profile(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintf(w, `<div class="card">
   %s
-  <div class="card-title">%s — %d/100</div>
+  <div class="card-title">%s — %s</div>
   <div class="card-meta">%s · %s · <small>%s</small></div>
   <p>%s</p>
   <a href="/checkins/%s">View</a>
 </div>`,
 			thumbHTML,
-			c.DrinkName, c.Score,
+			c.DrinkName, layout.ScoreHTML(c.Score),
 			c.LocationName, c.DrinkDate.Format("2 Jan 2006"),
 			c.SubmittedAt.Format("2 Jan 2006 15:04"),
 			c.Review,

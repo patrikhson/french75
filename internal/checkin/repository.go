@@ -74,8 +74,8 @@ func Create(ctx context.Context, db *pgxpool.Pool, p CreateParams) (string, erro
 		return "", fmt.Errorf("drink date cannot be in the future")
 	}
 
-	if p.Score < 0 || p.Score > 100 {
-		return "", fmt.Errorf("score must be between 0 and 100")
+	if p.Score < 0 || p.Score > 5 {
+		return "", fmt.Errorf("score must be between 0 and 5")
 	}
 	if p.Review == "" {
 		return "", fmt.Errorf("review is required")

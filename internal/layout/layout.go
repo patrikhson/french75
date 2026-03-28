@@ -6,7 +6,25 @@
 // the entire site.
 package layout
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
+
+// ScoreHTML returns a visual representation of a 0–5 cocktail-glass score.
+// Filled glasses (🍸) are shown for the score value; the remaining glasses are
+// rendered at low opacity so the full scale is always visible.
+func ScoreHTML(score int) string {
+	var b strings.Builder
+	for i := 1; i <= 5; i++ {
+		if i <= score {
+			b.WriteString("🍸")
+		} else {
+			b.WriteString(`<span style="opacity:0.2">🍸</span>`)
+		}
+	}
+	return b.String()
+}
 
 // LeafletCSS is the <link> tag for Leaflet maps. Pass it as extraHead to any
 // PageStart function for pages that embed a map.

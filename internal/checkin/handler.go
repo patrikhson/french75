@@ -73,9 +73,10 @@ func (h *Handler) showNew(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Fprintf(w, `</select></label><br><br>
 
-  <label>Score (0–100)<br>
-  <input type="range" name="score" min="0" max="100" value="75" oninput="this.nextElementSibling.value=this.value">
-  <output>75</output></label><br><br>
+  <label>Score<br>
+  <input type="range" name="score" min="0" max="5" value="3" id="scoreInput" oninput="updateScore(this.value)">
+  <div id="scoreDisplay" style="font-size:1.4em;line-height:1;margin-top:4px;"></div>
+  </label><br><br>
 
   <label>Review<br>
   <textarea name="review" rows="4" required placeholder="How was it?"></textarea></label><br><br>
@@ -119,6 +120,16 @@ func (h *Handler) showNew(w http.ResponseWriter, r *http.Request) {
 </form>
 
 <script>
+// Score display
+function updateScore(v) {
+  var s = '';
+  for (var i = 1; i <= 5; i++) {
+    s += i <= v ? '🍸' : '<span style="opacity:0.2">🍸</span>';
+  }
+  document.getElementById('scoreDisplay').innerHTML = s;
+}
+updateScore(3);
+
 // Location search
 let locationTimer;
 document.getElementById('locationSearch').addEventListener('input', e => {
@@ -379,7 +390,7 @@ func (h *Handler) show(w http.ResponseWriter, r *http.Request) {
   <strong>Drinking date:</strong> %s<br>
   <strong>Posted:</strong> %s<br>
   <strong>Venue:</strong> <a href="/venues?name=%s">%s</a><br>
-  <strong>Score:</strong> %d/100
+  <strong>Score:</strong> %s
 </p>
 <blockquote>%s</blockquote>
 <div class="card-actions">
@@ -396,7 +407,7 @@ func (h *Handler) show(w http.ResponseWriter, r *http.Request) {
 		ci.DrinkDate.Format("2 January 2006"),
 		ci.SubmittedAt.Format("2 January 2006 15:04"),
 		url.QueryEscape(ci.LocationName), ci.LocationName,
-		ci.Score,
+		layout.ScoreHTML(ci.Score),
 		ci.Review,
 		ci.ID, ci.ID, ci.ID, ci.LikeCount,
 		ci.ID, ci.ID, ci.ID, ci.HelpfulCount,
@@ -448,9 +459,9 @@ func (h *Handler) showEdit(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, layout.PageStart("Edit Check-in", userRole, notification.UnreadCount(r.Context(), h.db, userID), ""))
 	fmt.Fprintf(w, `<h2>Edit Check-in</h2>
 <form class="form" method="POST" action="/checkins/%s/edit">
-  <label>Score (0–100)
-    <input type="range" name="score" min="0" max="100" value="%d" oninput="this.nextElementSibling.value=this.value">
-    <output>%d</output>
+  <label>Score
+    <input type="range" name="score" min="0" max="5" value="%d" id="scoreInput" oninput="updateScore(this.value)">
+    <div id="scoreDisplay" style="font-size:1.4em;line-height:1;margin-top:4px;"></div>
   </label>
   <label>Review
     <textarea name="review" rows="4" required>%s</textarea>
@@ -459,8 +470,18 @@ func (h *Handler) showEdit(w http.ResponseWriter, r *http.Request) {
     <button type="submit">Save changes</button>
     <a href="/checkins/%s">Cancel</a>
   </div>
-</form>`,
-		ci.ID, ci.Score, ci.Score, ci.Review, ci.ID)
+</form>
+<script>
+function updateScore(v) {
+  var s = '';
+  for (var i = 1; i <= 5; i++) {
+    s += i <= v ? '🍸' : '<span style="opacity:0.2">🍸</span>';
+  }
+  document.getElementById('scoreDisplay').innerHTML = s;
+}
+updateScore(%d);
+</script>`,
+		ci.ID, ci.Score, ci.Review, ci.ID, ci.Score)
 	fmt.Fprint(w, layout.PageEnd())
 }
 
@@ -475,7 +496,7 @@ func (h *Handler) edit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	score, err := strconv.Atoi(r.FormValue("score"))
-	if err != nil || score < 0 || score > 100 {
+	if err != nil || score < 0 || score > 5 {
 		http.Error(w, "Invalid score", http.StatusBadRequest)
 		return
 	}
