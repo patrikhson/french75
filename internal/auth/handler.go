@@ -42,7 +42,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux, requireAuth func(http.Handl
 	// Registration request flow
 	mux.HandleFunc("GET /auth/request", h.showRequestForm)
 	mux.HandleFunc("POST /auth/request", h.submitRequest)
-	mux.HandleFunc("GET /auth/verify-email", h.verifyEmail)
+	mux.HandleFunc("GET /auth/verify-email", h.showVerifyEmail)
+	mux.HandleFunc("POST /auth/verify-email", h.verifyEmail)
 
 	// Passkey registration (after admin approval)
 	mux.HandleFunc("GET /auth/register", h.showRegisterPasskey)
@@ -128,8 +129,21 @@ func (h *Handler) showRequestSuccess(w http.ResponseWriter, r *http.Request) {
 // Step 2: Email verification → redirect to passkey registration
 // ---------------------------------------------------------------
 
-func (h *Handler) verifyEmail(w http.ResponseWriter, r *http.Request) {
+// showVerifyEmail renders a confirmation page. This is intentionally a no-op GET
+// so that link-scanning proxies (e.g. Microsoft SafeLinks) cannot consume the token
+// before the user clicks the button.
+func (h *Handler) showVerifyEmail(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
+	if token == "" {
+		http.Error(w, "Invalid link", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprintf(w, verifyEmailHTML, token)
+}
+
+func (h *Handler) verifyEmail(w http.ResponseWriter, r *http.Request) {
+	token := r.FormValue("token")
 	if token == "" {
 		http.Error(w, "Invalid link", http.StatusBadRequest)
 		return
@@ -671,6 +685,31 @@ function bufferToBase64(buf) {
     .replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
 }
 </script>
+</main>
+<footer class="site-footer"><p>French 75 Tracker</p></footer>
+</body></html>`
+
+const verifyEmailHTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Verify your email — French 75 Tracker</title>
+  <link rel="stylesheet" href="/static/css/site.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="site-header__inner">
+    <a href="/auth/login" class="site-logo">French 75 Tracker</a>
+  </div>
+</header>
+<main class="site-main">
+  <h2>Verify your email</h2>
+  <p>Click the button below to confirm your email address and continue setting up your account.</p>
+  <form method="POST" action="/auth/verify-email">
+    <input type="hidden" name="token" value="%s">
+    <button type="submit">Verify my email</button>
+  </form>
 </main>
 <footer class="site-footer"><p>French 75 Tracker</p></footer>
 </body></html>`
